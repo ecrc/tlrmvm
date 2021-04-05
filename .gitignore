@@ -1,0 +1,15 @@
+core*
+*.out
+cublas_*
+*.o
+magma_*
+bin 
+*.bin
+*.qdrep
+*.out
+*.nvprof
+*.err
+cublasgemm
+*.mat
+data
+bin
