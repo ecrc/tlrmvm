@@ -1,0 +1,448 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "math.h"
+#include "cublas_v2.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
+#include <math.h>
+#include <assert.h>
+#include <unistd.h>
+#include <memory.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <mpi.h>
+#include <cublas_v2.h>     // if you need CUBLAS v2, include before magma.h
+#include <cuda.h>
+#include <nccl.h>
+#include <cuda_runtime.h>
+#include <cuda_runtime_api.h>
+#include <cublas_v2.h>
+#include "common/Common.h"
+#include "common/AppUtil.h"
+#include "tlrmvm/Tlrmvm.h"
+#include "tlrmvm/Tlrmvmcuda.h"
+#include <stdio.h>
+#include <iostream>
+#include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
+#include <math.h>
+#include <assert.h>
+#include <unistd.h>
+#include <memory.h>
+#include <mpi.h>
+#include <complex>
+#include <string>
+#include <vector>
+
+#include "common/Common.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "tlrmvm/Tlrmvm.h"
+
+using namespace std;
+using namespace tlrmat;
+using namespace tlrmvm;
+using std::complex;
+#define SComplexMat Matrix<complex<float>> 
+
+using ::testing::Pointwise;
+using ::testing::NanSensitiveFloatEq;
+
+
+#include "benchmark/benchmark.h"
+#include "AstronomyUtil.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+
+#ifdef USE_NVTX
+#include "nvToolsExt.h"
+
+const uint32_t colors[] = { 0xff00ff00, 0xff0000ff, 0xffffff00, 0xffff00ff, 0xff00ffff, 0xffff0000, 0xffffffff };
+const int num_colors = sizeof(colors)/sizeof(uint32_t);
+
+#define PUSH_RANGE(name,cid) { \
+    int color_id = cid; \
+    color_id = color_id%num_colors;\
+    nvtxEventAttributes_t eventAttrib = {0}; \
+    eventAttrib.version = NVTX_VERSION; \
+    eventAttrib.size = NVTX_EVENT_ATTRIB_STRUCT_SIZE; \
+    eventAttrib.colorType = NVTX_COLOR_ARGB; \
+    eventAttrib.color = colors[color_id]; \
+    eventAttrib.messageType = NVTX_MESSAGE_TYPE_ASCII; \
+    eventAttrib.message.ascii = name; \
+    nvtxRangePushEx(&eventAttrib); \
+}
+#define POP_RANGE nvtxRangePop();
+#else
+#define PUSH_RANGE(name,cid)
+#define POP_RANGE
+#endif
+
+#include "common/Common.h"
+#include "common/AppUtil.h"
+#include "tlrmvm/Tlrmvm.h"
+#include "tlrmvm/Tlrmvmcuda.h"
+
+#include "benchmark/benchmark.h"
+#include "AstronomyUtil.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include <cassert>
+using namespace std;
+using namespace tlrmat;
+using namespace tlrmvm;
+using namespace cudatlrmat;
+using namespace cudatlrmvm;
+using ::testing::Pointwise;
+using ::testing::NanSensitiveFloatNear;
+
+vector<string> g_command_line_arg_vec;
+
+#define real_t float
+
+ void Init(real_t *A, int m, int n){
+    #pragma omp parallel for
+    for(int i=0; i<m; i++){
+      for(int j=0; j<n; j++){
+        long tmp = (long)i * (long)n + (long)j;
+        // A[tmp] = 1.0; //(real_t)rand() / (real_t)RAND_MAX;
+        // A[tmp] = (real_t)rand() / (real_t)RAND_MAX;
+        A[tmp] = 1.0;
+      }
+    }
+  }
+
+TEST(GPUCONSTRANK,MAIN){
+real_t *A, *y, *y_final, *ynaive, *x;
+  int m, n, nb, nruns;
+  real_t *Au, *Av;
+  real_t *yu, *yv;
+  int warmup = 10;
+  real_t alpha, beta;
+  char exptype[20];
+  char filepath[100];
+
+  alpha = 1.0;
+  beta = 0.0;
+  if(strcmp(g_command_line_arg_vec[0].c_str(), "fixed") == 0){
+    m = atoi(g_command_line_arg_vec[1].c_str());
+    n = atoi(g_command_line_arg_vec[2].c_str());
+    nb = atoi(g_command_line_arg_vec[3].c_str());
+    nruns = atoi(g_command_line_arg_vec[4].c_str());
+    strcpy(exptype, g_command_line_arg_vec[5].c_str());
+  }else if(strcmp(g_command_line_arg_vec[0].c_str(), "range") == 0){
+  }else{
+    printf("not recognized input size mode, exit. \n\n");
+    exit(0);
+  }
+
+  printf(" 1) m : %d n: %d nb: %d alpha: %f beta: %f nruns: %d\n\n", m, 
+  n, nb, alpha, beta, nruns);
+
+  MPI_Status mpistat;
+  int rank, size;
+  MPI_Init(NULL,NULL);
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  printf("worker %d online \n", rank);
+  cudaSetDevice(rank); 
+  cublasHandle_t handle;
+  cublasStatus_t state;
+  state = cublasCreate(&handle);
+  
+  // nccl init
+  ncclUniqueId id;
+  if (rank == 0) ncclGetUniqueId(&id);
+  MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
+  ncclComm_t comm;
+  NCCLCHECK(ncclCommInitRank(&comm, size, id, rank));
+  int dim_ok = 1;
+  if ((m%nb)!=0) {
+    if (rank==0) printf("ERROR: m has to be multiple of nb (mt = m/nb)\n");
+    dim_ok = 0;
+  }
+  if ((n%(nb*size))!=0) {
+    if (rank==0) printf("ERROR: n has to be multiple of nb * #MPI (nt = n/nb/size and Avcols = n/size)\n");
+    dim_ok = 0;
+  }
+  if ((m%4)!=0) {
+    if (rank==0) printf("ERROR: m has to be multiple of 4 (Avrows = m/4)\n");
+    dim_ok = 0;
+  }
+  if ((n%(4*size))!=0) {
+    if (rank==0) printf("ERROR: n has to be multiple of 4 * #MPI (Aucols = n/4/size)\n");
+    dim_ok = 0;
+  }
+  
+  if (!dim_ok) {
+    MPI_Finalize();
+    return;
+  }
+  
+  long int Aurows = m, Aucols = n/4/size;
+  long int Avrows = m/4, Avcols = n/size;
+  int nt = n/nb/size, mt = m/nb;
+
+  cudaStream_t stream;
+  CUDACHECK(cudaStreamCreate(&stream));
+
+  /*************************
+  * Phase 1 allocation
+  **************************/
+
+  // batch pointers
+  float **h_d_phase1A, **h_d_phase1B, **h_d_phase1C;
+  int phase1batch = n / nb / size;
+  int phase1M = Avrows;
+  int phase1N = nb;
+
+  h_d_phase1A = (float**)malloc(phase1batch * sizeof(float*));
+  h_d_phase1B = (float**)malloc(phase1batch * sizeof(float*));
+  h_d_phase1C = (float**)malloc(phase1batch * sizeof(float*));
+
+  float **d_phase1A, **d_phase1B, **d_phase1C;
+  cudaMalloc((void**)&d_phase1A, phase1batch*sizeof(float*));
+  cudaMalloc((void**)&d_phase1B, phase1batch*sizeof(float*));
+  cudaMalloc((void**)&d_phase1C, phase1batch*sizeof(float*));
+
+
+  // cpu data buffer
+  Av = (float *)malloc( (long)Avrows*(long)Avcols*sizeof( float ));
+  yv = (float *)malloc( (long)Avrows*(long)nt*sizeof( float ));
+  x = (float *)malloc( (long)Avcols*sizeof( float ));
+  Init(Av, Avrows, Avcols);
+  Init(yv, Avrows, nt);
+  Init(x, Avcols,1);
+
+  float *Au_d, *Av_d, *yv_d, *A_d, *x_d, *y_d, *y_final_d, *ynaive_d;
+  float * yu_d;
+
+  CUDACHECK(cudaMalloc((void**)&Av_d, (long)Avrows*(long)Avcols*sizeof( float )) );
+  CUDACHECK(cudaMalloc((void**)&yv_d, (long)Avrows*(long)nt*sizeof( float )) );
+  CUDACHECK(cudaMalloc((void**)&x_d, (long)Avcols*sizeof( float )) );
+
+  CUDACHECK(cudaMemcpy(Av_d, Av, (long)Avrows*(long)Avcols*sizeof(float), cudaMemcpyDefault));
+  CUDACHECK(cudaMemcpy(x_d, x, (long)nt*(long)nb*sizeof(float), cudaMemcpyDefault));
+  CUDACHECK(cudaMemcpy(yv_d, yv, (long)nt*(long)Avrows*sizeof(float), cudaMemcpyDefault));
+  
+
+  // cpu phase1 impl
+  for(int i=0; i<nt; i++){
+    for(int r=0; r<phase1M; r++){
+      float tmpval = 0.0;
+      for(int c=0; c<phase1N; c++){
+        tmpval += Av[i*phase1M*nb + c * phase1M + r] * x[i*nb+c];
+      }
+      yv[i*phase1M+r] = tmpval;
+    }
+  }
+
+
+  // calculate phase1 pointer array
+  h_d_phase1A[0] = Av_d;
+  h_d_phase1B[0] = x_d;
+  h_d_phase1C[0] = yv_d;
+  for(int i=1; i<nt; i++){
+    h_d_phase1A[i] = h_d_phase1A[i-1] + phase1M * phase1N;
+    h_d_phase1B[i] = h_d_phase1B[i-1] + phase1N;
+    h_d_phase1C[i] = h_d_phase1C[i-1] + phase1M;
+  }
+  // copy phase1 pointer array to gpu
+  cudaMemcpy(d_phase1A, h_d_phase1A, sizeof(float*) * phase1batch, cudaMemcpyDefault);
+  cudaMemcpy(d_phase1B, h_d_phase1B, sizeof(float*) * phase1batch, cudaMemcpyDefault);
+  cudaMemcpy(d_phase1C, h_d_phase1C, sizeof(float*) * phase1batch, cudaMemcpyDefault);
+
+
+  /*******************
+  * phase 2
+  * *****************/
+  // batch pointer for phase2
+  float ** h_d_phase2A,** h_d_phase2B,** h_d_phase2C;
+  int phase2batch = m / nb;
+  int phase2M = nb;
+  int phase2N = n / 4 / size;
+
+  h_d_phase2A = (float**)malloc(phase2batch * sizeof(float*));
+  h_d_phase2B = (float**)malloc(phase2batch * sizeof(float*));
+  h_d_phase2C = (float**)malloc(phase2batch * sizeof(float*));
+
+  float **d_phase2A, **d_phase2B, **d_phase2C;
+  cudaMalloc((void**)&d_phase2A, phase2batch*sizeof(float*));
+  cudaMalloc((void**)&d_phase2B, phase2batch*sizeof(float*));
+  cudaMalloc((void**)&d_phase2C, phase2batch*sizeof(float*));
+  // cpu data buffer
+  Au = (float *)malloc( (long)Aurows*(long)Aucols*sizeof( float ));
+  yu = (float *)malloc( (long)Aucols*(long)mt*sizeof( float ));
+  y = (float *)malloc( (long)m*sizeof( float ));
+  
+  Init(Au, Aurows, Aucols);
+  
+  CUDACHECK(cudaMalloc((void**)&Au_d, (long)Aurows*(long)Aucols*sizeof( float )) );
+  CUDACHECK(cudaMalloc((void**)&yu_d, (long)Aucols*(long)mt*sizeof( float )) );
+  CUDACHECK(cudaMalloc((void**)&y_d, (long)m*sizeof( float )) );
+
+  CUDACHECK(cudaMemcpy(Au_d, Au, (long)Aurows*(long)Aucols*sizeof(float), cudaMemcpyDefault));
+
+  // calculate phase2 pointer array
+  h_d_phase2A[0] = Au_d;
+  h_d_phase2B[0] = yu_d;
+  h_d_phase2C[0] = y_d;
+  for(int i=1; i<mt; i++){
+    h_d_phase2A[i] = h_d_phase2A[i-1] + phase2M;
+    h_d_phase2B[i] = h_d_phase2B[i-1] + phase2N;
+    h_d_phase2C[i] = h_d_phase2C[i-1] + phase2M;
+  }
+  // copy phase2 pointer array to gpu
+  cudaMemcpy(d_phase2A, h_d_phase2A, sizeof(float*) * phase2batch, cudaMemcpyDefault);
+  cudaMemcpy(d_phase2B, h_d_phase2B, sizeof(float*) * phase2batch, cudaMemcpyDefault);
+  cudaMemcpy(d_phase2C, h_d_phase2C, sizeof(float*) * phase2batch, cudaMemcpyDefault);
+
+
+  CUDACHECK(cudaMalloc((void**)&y_final_d, (long)m*sizeof( real_t )) );
+  y_final = (float*)malloc((long)m * sizeof(float));
+
+  // shuffle configuration
+  int thread_x = 128;
+  int thread_y = 1;
+  int nbx =  nt / thread_x + (nt % thread_x != 0);
+  int nby =  Avrows;
+  dim3 dimBlock(thread_x, thread_y);
+  dim3 dimGrid(nbx, nby);
+
+
+
+  double timearr[1000];
+  for(int i=0; i<1200; i++){
+    cudaDeviceSynchronize();
+    cublasSetStream(handle, stream);
+
+    double t1 = gettime();
+
+    cublasSgemmBatched(handle,
+    CUBLAS_OP_N,CUBLAS_OP_N,
+    phase1M, 1, phase1N, &alpha, 
+    (const float**)d_phase1A, phase1M, 
+    (const float**)d_phase1B, phase1N,
+    &beta, 
+    d_phase1C, phase1M, phase1batch);
+
+    cudatlrmvm::phase2gpuconstrankreshuffledriver
+    (yv_d, yu_d, Aurows, Aucols, Avrows, Avcols, m, n, nt, mt, nb, size);
+
+    // cudaDeviceSynchronize();
+    // cudaError_t err = cudaGetLastError();
+    // if(err != cudaSuccess){
+    //   printf("error %s \n", cudaGetErrorString(err));
+    // }
+    // cudaMemcpy(yv, yv_d, sizeof(float) * Avrows*nt, cudaMemcpyDefault);
+    // cudaMemcpy(yu, yu_d, sizeof(float) * Aucols*mt, cudaMemcpyDefault);
+
+    // printf("Aucols %d mt %d\n", Aucols, mt);
+    // for(int i=0; i<Aucols*mt; i++){
+    //   if(yu[i] != 100.0){
+    //     printf("value is %f\n", yu[i]);
+    //   }
+    // }
+    // CUDACHECK(cudaDeviceSynchronize());
+
+    cublasSgemmBatched(handle,
+    CUBLAS_OP_N,CUBLAS_OP_N,
+    phase2M, 1, phase2N, &alpha,
+    (const float**)d_phase2A, Aurows,
+    (const float**)d_phase2B, phase2N,
+    &beta, 
+    d_phase2C, phase2M, phase2batch);
+
+    //CUDACHECK(cudaDeviceSynchronize());
+
+    // cudaMemcpy(y, y_d, sizeof(float) * m, cudaMemcpyDefault);
+    // cudaMemcpy(Au, Au_d, sizeof(float) * 10, cudaMemcpyDefault);
+    // cudaMemcpy(yu, yu_d, sizeof(float) * 10, cudaMemcpyDefault);
+    // if(rank == 0){
+    //   for(int i=0; i<m; i++){
+    //     if(y[i] != 500000.000000 / size){
+    //       printf("rank %d y %f yu %f Au %f\n", i, y[i],yu[i],Au[i]);
+    //       break;
+    //     }
+    //   }
+    // }
+    
+    NCCLCHECK(ncclReduce((const void*)y_d, (void*)y_final_d, Aurows, ncclFloat, 
+    ncclSum, 0, comm, stream));
+    CUDACHECK(cudaDeviceSynchronize());
+    MPI_Barrier(MPI_COMM_WORLD);
+    double t2 = gettime();
+    double final_time;
+    double t2t1 = t2-t1;
+    MPI_Reduce(&t2t1, &final_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    
+    // cudaMemcpy(y_final, y_final_d, sizeof(float) * m, cudaMemcpyDefault);
+    // if(rank ==0){
+    //   for(int yi=0; yi<m; yi++){
+    //     if(y_final[yi] != 500000.000000){
+    //       printf("error %d %f\n", yi, y_final[yi]);
+    //       break;
+    //     }
+    //   }
+    // }
+    
+
+    
+    if(i < 200)continue;
+    double bd = sizeof(float)*
+    ( (long)m/4*(long)n+n+nt*Avrows + (long)m*(long)n/4+n+mt*Aucols+m)
+    / (final_time * 1e9);
+    if(rank == 0)
+    printf("run %d time %f Bd %f\n", i-200, final_time, bd);
+    timearr[i-200] = final_time;
+  }
+  double totalt = 0.0;
+  for(int i=0; i<1000; i++){
+    totalt += timearr[i];
+  }
+  // printf("avg time %f\n", totalt/80);
+  
+  // float *farr = new float[Avrows];
+  // cudaMemcpy(farr, h_d_phase1C[0], sizeof(float) * Avrows, cudaMemcpyDefault);
+  double exetime = totalt/1000.0;
+  // double phase1bd = sizeof(float)*((long)phase1M *(long)phase1N*(long)phase1batch + 
+  // phase1M + phase1N*nb)/ (exetime * 1e9);
+  // double phase2bd = sizeof(float)*((long)phase2M*(long)phase2N*(long)phase2batch + 
+  // phase2M*nb+phase2N) / (exetime * 1e9);
+  double totalbd = sizeof(float)*
+  ( (long)m/4*(long)n+n+nt*Avrows + (long)m*(long)n/4+n+mt*Aucols+m)
+  / (exetime * 1e9);
+  if(rank == 0)
+  printf("time is %f bd %f\n", exetime,totalbd);
+  
+
+
+
+
+  cublasDestroy(handle);
+  ncclCommDestroy(comm);
+  
+}
+
+
+class MyTestEnvironment : public testing::Environment {
+ public:
+  explicit MyTestEnvironment(const vector<string> &command_line_arg) {
+    g_command_line_arg_vec = command_line_arg;
+  }
+};
+
+int main(int argc, char **argv) {
+  vector<string> command_line_arg_vec;
+  testing::InitGoogleTest(&argc, argv);
+  for(int i=0; i<argc-1; i++){
+      char tmp[200];
+      sprintf(tmp, "%s", argv[i+1]);
+      command_line_arg_vec.push_back(string(tmp));
+  }
+  testing::AddGlobalTestEnvironment(new MyTestEnvironment(command_line_arg_vec));
+  return RUN_ALL_TESTS();
+}
