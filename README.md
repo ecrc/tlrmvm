@@ -55,5 +55,9 @@ after download, put it in a seperate folder and set `WORK_ROOT` to that folder.
 in install/test folder, you can try to launch bash file. 
 These are the test files.
 
+### 5 Handout
+
+![alt text](https://github.com/ecrc/tlrmvm-dev/blob/master/doxygen/handsout.png)
+
 If you have any troubles, please create an issue or 
 send email to yuxi.hong@kaust.edu.sa / hatem.ltaief@kaust.edu.sa.
