@@ -16,6 +16,7 @@ int main (int argc, char ** argv){
     int originM;
     int originN;
     int nb;
+    int loopsize;
     string acc;
     string datafolder;
     string problemname;
@@ -30,6 +31,7 @@ int main (int argc, char ** argv){
     originM = argparser.getint("M");
     originN = argparser.getint("N");
     nb = argparser.getint("nb");
+    loopsize = argparser.getint("loopsize");
     acc = argparser.getstring("errorthreshold");
     problemname = argparser.getstring("problemname");
     datafolder = argparser.getstring("datafolder");
@@ -46,7 +48,7 @@ int main (int argc, char ** argv){
     maskmat.Fill(0);
     for(int i=0; i<tlrmvmconfig.Mtg; i++){
         for(int j=0; j<tlrmvmconfig.Ntg; j++){
-            if (j % size == rank )
+            if (j % size == rank)
             maskmat.SetElem(i,j,1);
         }
     }
@@ -55,7 +57,7 @@ int main (int argc, char ** argv){
     double bytes = TLRMVMBytesProcessed<float>(tlrmvmptr.granksum, 
     tlrmvmptr.nb, tlrmvmptr.paddingM, tlrmvmptr.paddingN);
     tlrmvmptr.MemoryInit();
-    for(int i=0; i<10000; i++){
+    for(int i=0; i<loopsize; i++){
         MPI_Barrier(MPI_COMM_WORLD);
         auto start = std::chrono::steady_clock::now();
         tlrmvmptr.MVM();
@@ -78,12 +80,13 @@ int main (int argc, char ** argv){
         auto hyu = Matrix<float>(tlrmvmptr.h_yu, tlrmvmptr.workmatgranksum, 1);
         // cout << " Phase 2 Correctness : " << hyu.allclose(yu_pc) << endl;
         Matrix<float> y_pc = seismicpcmat.Phase3();
-        auto hy = Matrix<float>(tlrmvmptr.h_yout, tlrmvmptr.paddingM, 1);
+        auto hy = Matrix<float>(tlrmvmptr.h_yout, tlrmvmptr.originM, 1);
         cout << " Check MPI Phase 3 Correctness : "<< hy.allclose(y_pc) << endl;
         std::sort(mergetime.begin(), mergetime.end());
         int N = mergetime.size();
         cout << "median " << mergetime[N / 2] * 1e6 << " us."<< endl;
         double bytes = TLRMVMBytesProcessed<float>(tlrmvmptr.granksum, tlrmvmptr.nb, originM, originN);
+        cout << "U and V bases size: " << bytes * 1e-6 << " MB." << endl;
         cout << "Bandwidth " << bytes / mergetime[N/2] * 1e-9 << " GB/s" << endl;
     }
     tlrmvmptr.MemoryFree();

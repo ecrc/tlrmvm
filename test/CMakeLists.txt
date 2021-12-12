@@ -12,13 +12,17 @@ install(TARGETS ex1basic_complexfloat DESTINATION test)
 if(USE_MPI)
 WrapBinary(ex2mpitlrmvm_float cpp)
 WrapBinary(ex2mpitlrmvm_complexfloat cpp)
+WrapBinary(ex3_gendata cpp)
+install(TARGETS ex3_gendata DESTINATION test)
 install(TARGETS ex2mpitlrmvm_float DESTINATION test)
 install(TARGETS ex2mpitlrmvm_complexfloat DESTINATION test)
 install(FILES 
 ${CMAKE_CURRENT_LIST_DIR}/cpp/runexp2AMD.sh 
+${CMAKE_CURRENT_LIST_DIR}/cpp/runexp2AMD_synthetic.sh 
 ${CMAKE_CURRENT_LIST_DIR}/cpp/runexp2ICX.sh 
 ${CMAKE_CURRENT_LIST_DIR}/cpp/runexp2NEC.sh 
 ${CMAKE_CURRENT_LIST_DIR}/cpp/runexp2A64FX.sh 
+${CMAKE_CURRENT_LIST_DIR}/cpp/runexp3_gendata.sh
 DESTINATION test
 PERMISSIONS OWNER_READ OWNER_EXECUTE GROUP_READ GROUP_EXECUTE)
 endif() # USE MPI
