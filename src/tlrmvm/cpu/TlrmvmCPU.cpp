@@ -1,150 +1,231 @@
-#include "TlrmvmCPU.h"
-#include "common/Common.h"
-#include "common/AppUtil.h"
+
 #include <memory.h>
 #include <cassert>
+
+#include "TlrmvmCPU.hpp"
+#include "../../common/Common.hpp"
+#include "../../common/AppUtil.hpp"
+#include "../../common/cpu/Util.hpp"
+#include <memory>
 #ifdef USE_MPI
 #include <mpi.h>
-#endif 
-
-using namespace tlrmat;
-
-namespace tlrmvm{
+#endif
 
 int CalculatePadding(int originDim, int nb){
     return ( originDim / nb + (originDim % nb != 0) ) * nb;
 }
 
-TlrmvmConfig::TlrmvmConfig(int originM, int originN, int nb, 
+
+TlrmvmConfig::TlrmvmConfig(){}
+
+TlrmvmConfig::TlrmvmConfig(int originM, int originN, int nb,
 string datafolder, string acc, string problemname)
-:datafolder(datafolder), acc(acc), problemname(problemname),
-originM(originM), originN(originN), nb(nb)
+:datafolder(datafolder),acc(acc),problemname(problemname),
+originM(originM), originN(originN),nb(nb)
 {
+    isconstrank = false;
+    paddingM = CalculatePadding(originM, nb);
+    paddingN = CalculatePadding(originN, nb);
     Mtg = CalculatePadding(originM, nb) / nb;
     Ntg = CalculatePadding(originN, nb) / nb;
+    char filename[200];
+    sprintf(filename, "%s/%s_Rmat_nb%d_acc%s.bin",datafolder.c_str(),
+            problemname.c_str(),nb, acc.c_str());
+    OrgRmat = Matrix<int>::Fromfile(filename, Mtg, Ntg);
+    granksum = OrgRmat.Sum();
+    Maskmat = Matrix<int>(Mtg,Ntg);
+    Maskmat.Fill(1);
+    WorkRmat = OrgRmat.ApplyMask(Maskmat);
+    colsum = WorkRmat.ColSum();
+    rowsum = WorkRmat.RowSum();
+    gcolsum = OrgRmat.ColSum();
+    workmatgranksum = WorkRmat.Sum();
 }
 
-void initalphabeta(float &alpha, float &beta){
-    alpha = (float)1.0;
-    beta = (float)0.0;
+TlrmvmConfig::TlrmvmConfig(int originM, int originN, int nb, int constrank)
+:datafolder(""),acc(""),problemname(""),
+originM(originM), originN(originN),nb(nb)
+{
+    isconstrank = true;
+    paddingM = CalculatePadding(originM, nb);
+    paddingN = CalculatePadding(originN, nb);
+    Mtg = CalculatePadding(originM, nb) / nb;
+    Ntg = CalculatePadding(originN, nb) / nb;
+    OrgRmat = Matrix<int>(Mtg, Ntg);
+    OrgRmat.Fill(constrank);
+    granksum = OrgRmat.Sum();
+    Maskmat = Matrix<int>(Mtg,Ntg);
+    Maskmat.Fill(1);
+    WorkRmat = OrgRmat.ApplyMask(Maskmat);
+    colsum = WorkRmat.ColSum();
+    rowsum = WorkRmat.RowSum();
+    gcolsum = OrgRmat.ColSum();
+    workmatgranksum = WorkRmat.Sum();
 }
-void initalphabeta(complex<float> &alpha, complex<float> &beta){
-    alpha = complex<float>(1.0,0.0);
-    beta = complex<float>(0.0,0.0);
+
+void TlrmvmConfig::UpdateMaskmat(Matrix<int> maskmat) {
+    this->Maskmat = maskmat;
+    WorkRmat = OrgRmat.ApplyMask(Maskmat);
+    colsum = WorkRmat.ColSum();
+    rowsum = WorkRmat.RowSum();
+    gcolsum = OrgRmat.ColSum();
+    workmatgranksum = WorkRmat.Sum();
 }
-void initalphabeta(double &alpha, double &beta){
-    alpha = (double)1.0;
-    beta = (double)0.0;
-}
-void initalphabeta(complex<double> &alpha, complex<double> &beta){
-    alpha = complex<double>(1.0,0.0);
-    beta = complex<double>(0.0,0.0);
+
+void TlrmvmConfig::PrintMaskmat() {
+    cout << Maskmat << endl;
 }
 
 template<typename T>
+PhasePointers<T>::PhasePointers() {}
+
+template struct PhasePointers<float>;
+template struct PhasePointers<double>;
+template struct PhasePointers<complex<float>>;
+template struct PhasePointers<complex<double>>;
+
+
+template<typename T>
 TlrmvmBase<T>::TlrmvmBase(TlrmvmConfig tlrmvmconfig)
-:tlrmvmconfig(tlrmvmconfig)
+:config(tlrmvmconfig)
 {
-    originM = tlrmvmconfig.originM;
-    originN = tlrmvmconfig.originN;
-    nb = tlrmvmconfig.nb;
-    paddingM = CalculatePadding(originM, nb);
-    paddingN = CalculatePadding(originN, nb);
-    Ntg = paddingN / nb;
-    Mtg = paddingM / nb;
-    // load Rmat
-    char filename[200];
-    sprintf(filename, "%s/%s_Rmat_nb%d_acc%s.bin", 
-    tlrmvmconfig.datafolder.c_str(), tlrmvmconfig.problemname.c_str(),
-    tlrmvmconfig.nb, tlrmvmconfig.acc.c_str());
-    OrgRmat = Matrix<int>::Fromfile(filename, Mtg, Ntg);
-    granksum = OrgRmat.Sum();
-    Maskmat = tlrmvmconfig.Maskmat;
-    WorkRmat = OrgRmat.ApplyMask(Maskmat);
-    colsum = WorkRmat.ColSum();
-    initalphabeta(alpha, beta);
+    transpose = false;
+    conjugate = false;
+    init_alpha_beta(alpha, beta);
+    finalresults = new T[config.originM];
+    memset(finalresults, 0, sizeof(T) * config.originM);
+}
+
+template<typename T>
+TlrmvmBase<T>::TlrmvmBase(){}
+
+template<typename T>
+void TlrmvmBase<T>::UpdateConfig(TlrmvmConfig &tlrmvmConfig)
+{
+    this->config = tlrmvmConfig;
+}
+
+template<typename T>
+void TlrmvmBase<T>::SetTransposeConjugate(bool transpose, bool conjugate) {
+    this->transpose = transpose;
+    this->conjugate = conjugate;
 }
 
 template<typename T>
 void TlrmvmBase<T>::InitData(){
-    char filename[200];
-    sprintf(filename, "%s/%s_Ubases_nb%d_acc%s.bin", 
-    tlrmvmconfig.datafolder.c_str(), tlrmvmconfig.problemname.c_str(), 
-    tlrmvmconfig.nb, tlrmvmconfig.acc.c_str());
-    size_t elems = granksum * tlrmvmconfig.nb;
-    LoadBinary(filename, &DataAu, elems);
-    sprintf(filename, "%s/%s_Vbases_nb%d_acc%s.bin", 
-    tlrmvmconfig.datafolder.c_str(), tlrmvmconfig.problemname.c_str(), 
-    tlrmvmconfig.nb, tlrmvmconfig.acc.c_str());
-    LoadBinary(filename, &DataAv, elems);
-    T * tmpdatax;
-    sprintf(filename, "%s/%s_x.bin", tlrmvmconfig.datafolder.c_str(), 
-    tlrmvmconfig.problemname.c_str());
-    LoadBinary(filename, &tmpdatax, tlrmvmconfig.originN);
-    Datax = new T[tlrmvmconfig.Ntg * nb];
-    memset(Datax, 0, sizeof(T) * tlrmvmconfig.Ntg * nb);
-    for(int i=0; i<tlrmvmconfig.originN; i++){
-        Datax[i] = tmpdatax[i];
+    if(config.isconstrank){
+        size_t elems = config.granksum * config.nb;
+        DataAu = new T[elems];
+        for(int i=0; i<elems; i++) DataAu[i] = 0.001;
+        DataAv = new T[elems];
+        for(int i=0; i<elems; i++) DataAv[i] = 0.001;
+        Datax = new T[config.Ntg * config.nb];
+        memset(Datax, 0, sizeof(T) * config.Ntg * config.nb);
+        RandomX(Datax, config.originN);
+        this->xmat = Matrix<T>(Datax, config.paddingN, 1);
+    }else{
+        char filename[200];
+        sprintf(filename, "%s/%s_Ubases_nb%d_acc%s.bin",
+                config.datafolder.c_str(), config.problemname.c_str(),config.nb, config.acc.c_str());
+        size_t elems = config.granksum * config.nb;
+        LoadBinary(filename, &DataAu, elems);
+        sprintf(filename, "%s/%s_Vbases_nb%d_acc%s.bin",
+                config.datafolder.c_str(), config.problemname.c_str(),config.nb, config.acc.c_str());
+        LoadBinary(filename, &DataAv, elems);
+        Datax = new T[config.Ntg * config.nb];
+        memset(Datax, 0, sizeof(T) * config.Ntg * config.nb);
+        RandomX(Datax, config.originN);
+        this->xmat = Matrix<T>(Datax, config.paddingN, 1);
     }
-    delete[] tmpdatax;
-    this->xmat = Matrix<T>(Datax, paddingN, 1);
+}
+
+template<typename T>
+void TlrmvmBase<T>::FreeData(){
+    delete[] DataAu;
+    delete[] DataAv;
+    delete[] Datax;
 }
 
 template<typename T>
 void TlrmvmBase<T>::setX(T * xvector, size_t xlength){
-    assert(xlength == this->originN);
-    memset(Datax, 0, sizeof(T) * this->paddingN);
-    CopyData(Datax, xvector, xlength);
-    this->xmat = Matrix<T>(Datax, paddingN, 1);
+    assert(xlength == this->config.originN);
+    auto tmpx = new T[config.paddingN];
+    memset(tmpx, 0, sizeof(T) * config.paddingN);
+    CopyData(tmpx, xvector, xlength);
+    this->xmat = Matrix<T>(tmpx, config.paddingN, 1);
+    delete[] tmpx;
+    // move data from Datax to hx
+    T * xwalkptr = this->xmat.RawPtr();
+    size_t offset = 0;
+    for(int i=0; i<p1ptrs.Ms.size(); i++){
+        for(int j=0; j<config.nb; j++){
+            *(p1ptrs.x + offset + j) = *(xwalkptr + i*config.nb + j);
+        }
+        offset += config.nb;
+    }
 }
 
 template<typename T>
 void TlrmvmBase<T>::Phase1GetMembuffer(){
-    GetHostMemory(&h_Avbp, Ntg);
-    GetHostMemory(&h_xbp, Ntg);
-    GetHostMemory(&h_yvbp, Ntg);
-
-    for(int i=0; i<Ntg; i++){
-        AvMs.push_back(colsum[i]);
-        AvKs.push_back(nb);
-        AvNs.push_back(1);
+    GetHostMemory(&p1ptrs.Abp, config.Ntg);
+    GetHostMemory(&p1ptrs.xbp, config.Ntg);
+    GetHostMemory(&p1ptrs.ybp, config.Ntg);
+    for(int i=0; i<config.Ntg; i++){
+        p1ptrs.Ms.push_back(config.colsum[i]);
+        p1ptrs.Ks.push_back(config.nb);
+        p1ptrs.Ns.push_back(1);
     }
-    workmatgranksum = WorkRmat.Sum();
+    p1ptrs.Acnt = 0;
+    p1ptrs.Xcnt = 0;
+    p1ptrs.Ycnt = 0;
+    for(int i=0; i<config.Ntg; i++){
+        p1ptrs.Acnt += p1ptrs.Ms[i] * p1ptrs.Ks[i];
+        p1ptrs.Xcnt += p1ptrs.Ks[i] * p1ptrs.Ns[i];
+        p1ptrs.Ycnt += p1ptrs.Ms[i] * p1ptrs.Ns[i];
+    }
+}
 
-    phase1Acnt = 0;
-    phase1Xcnt = 0;
-    phase1Ycnt = 0;
-
-    for(int i=0; i<Ntg; i++){
-        phase1Acnt += AvMs[i] * AvKs[i];
-        phase1Xcnt += AvKs[i] * AvNs[i];
-        phase1Ycnt += AvMs[i] * AvNs[i];
+template<typename T>
+void TlrmvmBase<T>::Phase1GetMembufferTranspose() {
+    GetHostMemory(&p1transptrs.Abp, config.Ntg);
+    GetHostMemory(&p1transptrs.xbp, config.Ntg);
+    GetHostMemory(&p1transptrs.ybp, config.Ntg);
+    for(int i=0; i<config.Ntg; i++){
+        p1transptrs.Ms.push_back(config.rowsum[i]);
+        p1transptrs.Ks.push_back(config.nb);
+        p1transptrs.Ns.push_back(1);
+    }
+    p1transptrs.Acnt = 0;
+    p1transptrs.Xcnt = 0;
+    p1transptrs.Ycnt = 0;
+    for(int i=0; i<config.Ntg; i++){
+        p1transptrs.Acnt += p1transptrs.Ms[i] * p1transptrs.Ks[i];
+        p1transptrs.Xcnt += p1transptrs.Ks[i] * p1transptrs.Ns[i];
+        p1transptrs.Ycnt += p1transptrs.Ms[i] * p1transptrs.Ns[i];
     }
 }
 
 template<typename T>
 void TlrmvmBase<T>::Phase1CopyData(){
-    for(int i=1; i<Ntg; i++){
-        size_t AvMK = AvMs[i-1] * AvKs[i-1];
-        size_t AvKN = AvKs[i-1] * AvNs[i-1];
-        size_t AvMN = AvMs[i-1] * AvNs[i-1];
-        h_Avbp[i] = h_Avbp[i-1] + AvMK;
-        h_xbp[i] = h_xbp[i-1] + AvKN;
-        h_yvbp[i] = h_yvbp[i-1] + AvMN;
+    for(int i=1; i<p1ptrs.Ms.size(); i++){
+        size_t AvMK = p1ptrs.Ms[i-1] * p1ptrs.Ks[i-1];
+        size_t AvKN = p1ptrs.Ks[i-1] * p1ptrs.Ns[i-1];
+        size_t AvMN = p1ptrs.Ms[i-1] * p1ptrs.Ns[i-1];
+        p1ptrs.Abp[i] = p1ptrs.Abp[i-1] + AvMK;
+        p1ptrs.xbp[i] = p1ptrs.xbp[i-1] + AvKN;
+        p1ptrs.ybp[i] = p1ptrs.ybp[i-1] + AvMN;
     }
 
-    
     // move data from DataAv to Av
-    gcolsum = OrgRmat.ColSum();
     T *Avwalkptr = DataAv;
-    for(int i=0; i<Ntg; i++){
+    for(int i=0; i<p1ptrs.Ms.size(); i++){
         // column start pointers
-        T *colptr = h_Avbp[i];
-        size_t lda = gcolsum[i];
-        for(int nbi = 0; nbi < nb; nbi++){
-            for(int j=0; j < Mtg; j++){
-                int currank = OrgRmat.GetElem(j,i);
-               if(WorkRmat.GetElem(j,i) == OrgRmat.GetElem(j,i)){
+        T *colptr = p1ptrs.Abp[i];
+        size_t lda = config.gcolsum[i];
+        for(int nbi = 0; nbi < config.nb; nbi++){
+            for(int j=0; j < config.Mtg; j++){
+                int currank = config.OrgRmat.GetElem(j,i);
+               if(config.WorkRmat.GetElem(j,i) == config.OrgRmat.GetElem(j,i)){
                    for(int k=0; k<currank; k++){
                        *(colptr+k) = *(Avwalkptr + k);
                    }
@@ -154,48 +235,110 @@ void TlrmvmBase<T>::Phase1CopyData(){
             }
         }
     }
-
     // move data from Datax to hx
-    T * xwalkptr = Datax;
+    T * xwalkptr = this->xmat.RawPtr();
     size_t offset = 0;
-    for(int i=0; i<Ntg; i++){
-        for(int j=0; j<nb; j++){
-            *(h_x + offset + j) = *(xwalkptr + i*nb + j);
+    for(int i=0; i<p1ptrs.Ms.size(); i++){
+        for(int j=0; j<config.nb; j++){
+            *(p1ptrs.x + offset + j) = *(xwalkptr + i*config.nb + j);
         }
-        offset += nb;
+        offset += config.nb;
     }
 }
 
+template<typename T>
+void TlrmvmBase<T>::Phase1CopyDataTranspose() {
+    for(int i=1; i<p1transptrs.Ms.size(); i++){
+        size_t AvMK = p1transptrs.Ms[i-1] * p1transptrs.Ks[i-1];
+        size_t AvKN = p1transptrs.Ks[i-1] * p1transptrs.Ns[i-1];
+        size_t AvMN = p1transptrs.Ms[i-1] * p1transptrs.Ns[i-1];
+        p1transptrs.Abp[i] = p1transptrs.Abp[i-1] + AvMK;
+        p1transptrs.xbp[i] = p1transptrs.xbp[i-1] + AvKN;
+        p1transptrs.ybp[i] = p1transptrs.ybp[i-1] + AvMN;
+    }
+}
 
 template<typename T>
 void TlrmvmBase<T>::Phase2Prepare(){
     // phase 2
-    vector<vector<vector<vector<int>>>> phase2record;
-    phase2record.resize(Mtg, vector<vector<vector<int>>>()); // Mtg row
-    for(int i=0; i<Mtg; i++) phase2record[i].resize(Ntg, vector<vector<int>>()); // Ntg col
-    for(int i=0; i<Mtg; i++){
-        for(int j=0; j<Ntg; j++){
-            phase2record[i][j].resize(2, vector<int>());
-        }
-    }
+    vector<vector<vector<int>>> phase2record;
+    phase2record.resize(config.Mtg, vector<vector<int>>()); // Mtg row
+    for(auto &x : phase2record) x.resize(config.Ntg, vector<int>()); // Ntg col
     size_t p2walker = 0;
-    for(int i=0; i<Mtg; i++){
-        for(int j=0; j<Ntg; j++){
-            if(WorkRmat.GetElem(i,j) != 0){
-                int currank = WorkRmat.GetElem(i,j);
+    for(int i=0; i<config.Mtg; i++){
+        for(int j=0; j<config.Ntg; j++){
+            if(config.WorkRmat.GetElem(i,j) != 0){
+                int currank = config.WorkRmat.GetElem(i,j);
                 for(int k=0; k<currank; k++){
-                    phase2record[i][j][0].push_back(p2walker++);
+                    phase2record[i][j].push_back(p2walker++);
                 }
             }
         }
     }
     // unfold
-    for(int i=0; i<Ntg; i++){
-        for(int j=0; j<Mtg; j++){
-            if(WorkRmat.GetElem(j,i) != 0){
-                int currank = WorkRmat.GetElem(j,i);
+    for(int i=0; i<config.Ntg; i++){
+        for(int j=0; j<config.Mtg; j++){
+            if(config.WorkRmat.GetElem(j,i) != 0){
+                int currank = config.WorkRmat.GetElem(j,i);
                 for(int k=0; k<currank; k++){
-                    h_phase2mapping.push_back(phase2record[j][i][0][k]);
+                    h_phase2mapping.push_back(phase2record[j][i][k]);
+                }
+            }
+        }
+    }
+    h_phase2mapping2.clear();
+    phase2record.clear();
+    phase2record.resize(config.Mtg, vector<vector<int>>()); // Mtg row
+    for(auto &x : phase2record) x.resize(config.Ntg, vector<int>()); // Ntg col
+    p2walker = 0;
+    for(int i=0; i<config.Ntg; i++){
+        for(int j=0; j<config.Mtg; j++){
+            if(config.WorkRmat.GetElem(j,i) != 0){
+                int currank = config.WorkRmat.GetElem(j,i);
+                for(int k=0; k<currank; k++){
+                    phase2record[j][i].push_back(p2walker++);
+                }
+            }
+        }
+    }
+    // unfold
+    for(int i=0; i<config.Mtg; i++){
+        for(int j=0; j<config.Ntg; j++){
+            if(config.WorkRmat.GetElem(i,j) != 0){
+                int currank = config.WorkRmat.GetElem(i,j);
+                for(int k=0; k<currank; k++){
+                    h_phase2mapping2.push_back(phase2record[i][j][k]);
+                }
+            }
+        }
+    }
+
+}
+
+template<typename T>
+void TlrmvmBase<T>::Phase2PrepareTranspose() {
+    // phase 2
+    vector<vector<vector<int>>> phase2record;
+    phase2record.resize(config.Mtg, vector<vector<int>>()); // Mtg row
+    for(auto &x : phase2record) x.resize(config.Ntg, vector<int>()); // Ntg col
+    size_t p2walker = 0;
+    for(int i=0; i<config.Mtg; i++){
+        for(int j=0; j<config.Ntg; j++){
+            if(config.WorkRmat.GetElem(j,i) != 0){
+                int currank = config.WorkRmat.GetElem(j,i);
+                for(int k=0; k<currank; k++){
+                    phase2record[i][j].push_back(p2walker++);
+                }
+            }
+        }
+    }
+    // unfold
+    for(int i=0; i<config.Ntg; i++){
+        for(int j=0; j<config.Mtg; j++){
+            if(config.WorkRmat.GetElem(i,j) != 0){
+                int currank = config.WorkRmat.GetElem(i,j);
+                for(int k=0; k<currank; k++){
+                    h_phase2mappingTranspose.push_back(phase2record[j][i][k]);
                 }
             }
         }
@@ -204,99 +347,214 @@ void TlrmvmBase<T>::Phase2Prepare(){
 
 template<typename T>
 void TlrmvmBase<T>::Phase3GetMembuffer(){
-    GetHostMemory(&h_Aubp, Mtg);
-    GetHostMemory(&h_yubp, Mtg);
-    GetHostMemory(&h_ybp, Mtg);
-    GetHostMemory(&h_youtbp, Mtg);
-    // phase 3
-    rowsum = WorkRmat.RowSum();
-    for(int i=0; i<Mtg; i++){
-        AuMs.push_back(nb);
-        AuKs.push_back(rowsum[i]);
-        AuNs.push_back(1);
+    GetHostMemory(&p3ptrs.Abp, config.Ntg);
+    GetHostMemory(&p3ptrs.xbp, config.Ntg);
+    GetHostMemory(&p3ptrs.ybp, config.Ntg);
+    for(int i=0; i<config.Ntg; i++){
+        p3ptrs.Ms.push_back(config.nb);
+        p3ptrs.Ks.push_back(config.rowsum[i]);
+        p3ptrs.Ns.push_back(1);
     }
-    
-    phase3Acnt = 0;
-    phase3Xcnt = 0;
-    phase3Ycnt = 0;
-    for(int i=0; i<AuMs.size(); i++){
-        phase3Acnt += AuMs[i] * AuKs[i];
-        phase3Xcnt += AuKs[i] * AuNs[i];
-        phase3Ycnt += AuMs[i] * AuNs[i];
+    p3ptrs.Acnt = 0;
+    p3ptrs.Xcnt = 0;
+    p3ptrs.Ycnt = 0;
+    for(int i=0; i<config.Ntg; i++){
+        p3ptrs.Acnt += p3ptrs.Ms[i] * p3ptrs.Ks[i];
+        p3ptrs.Xcnt += p3ptrs.Ks[i] * p3ptrs.Ns[i];
+        p3ptrs.Ycnt += p3ptrs.Ms[i] * p3ptrs.Ns[i];
     }
 }
-
+template<typename T>
+void TlrmvmBase<T>::Phase3GetMembufferTranspose() {
+    GetHostMemory(&p3transptrs.Abp, config.Ntg);
+    GetHostMemory(&p3transptrs.xbp, config.Ntg);
+    GetHostMemory(&p3transptrs.ybp, config.Ntg);
+    for(int i=0; i<config.Ntg; i++){
+        p3transptrs.Ms.push_back(config.nb);
+        p3transptrs.Ks.push_back(config.colsum[i]);
+        p3transptrs.Ns.push_back(1);
+    }
+    p3transptrs.Acnt = 0;
+    p3transptrs.Xcnt = 0;
+    p3transptrs.Ycnt = 0;
+    for(int i=0; i<config.Ntg; i++){
+        p3transptrs.Acnt += p3transptrs.Ms[i] * p3transptrs.Ks[i];
+        p3transptrs.Xcnt += p3transptrs.Ks[i] * p3transptrs.Ns[i];
+        p3transptrs.Ycnt += p3transptrs.Ms[i] * p3transptrs.Ns[i];
+    }
+}
 template<typename T>
 void TlrmvmBase<T>::Phase3CopyData(){
-    for(int i=1; i<Mtg; i++){
-        size_t AuMK = AuMs[i-1] * AuKs[i-1];
-        size_t AuKN = AuKs[i-1] * AuNs[i-1];
-        size_t AuMN = AuMs[i-1] * AuNs[i-1];
-
-        h_Aubp[i] = h_Aubp[i-1] + AuMK;
-        h_yubp[i] = h_yubp[i-1] + AuKN;
-        h_ybp[i] = h_ybp[i-1] + AuMN;
-        h_youtbp[i] = h_youtbp[i-1] + AuMN;
+    for(int i=1; i<config.Mtg; i++){
+        size_t AuMK = p3ptrs.Ms[i-1] * p3ptrs.Ks[i-1];
+        size_t AuKN = p3ptrs.Ks[i-1] * p3ptrs.Ns[i-1];
+        size_t AuMN = p3ptrs.Ms[i-1] * p3ptrs.Ns[i-1];
+        p3ptrs.Abp[i] = p3ptrs.Abp[i-1] + AuMK;
+        p3ptrs.xbp[i] = p3ptrs.xbp[i-1] + AuKN;
+        p3ptrs.ybp[i] = p3ptrs.ybp[i-1] + AuMN;
     }
 
     // move data Au to memory buffer
-    T *colptr = h_Au;
+    T *colptr = p3ptrs.A;
     T *dataauwalker = DataAu;
-    for(int i=0; i<Mtg; i++)
+    for(int i=0; i<config.Mtg; i++)
     {
-        for(int j=0; j<Ntg; j++){
-            int currank = OrgRmat.GetElem(i,j);
-            if(Maskmat.GetElem(i, j) == 1){
-                for(size_t k=0; k<currank*nb; k++){
+        for(int j=0; j<config.Ntg; j++){
+            int currank = config.OrgRmat.GetElem(i,j);
+            if(config.WorkRmat.GetElem(i,j) == config.OrgRmat.GetElem(i,j)){
+                for(size_t k=0; k<currank*config.nb; k++){
                     *(colptr) = *(dataauwalker+k);
                     colptr++;
                 }
             }
-            dataauwalker += currank * nb;
+            dataauwalker += currank * config.nb;
+        }
+    }
+}
+template<typename T>
+void TlrmvmBase<T>::Phase3CopyDataTranspose() {
+    for(int i=1; i<p3transptrs.Ms.size(); i++){
+        size_t AvMK = p3transptrs.Ms[i-1] * p3transptrs.Ks[i-1];
+        size_t AvKN = p3transptrs.Ks[i-1] * p3transptrs.Ns[i-1];
+        size_t AvMN = p3transptrs.Ms[i-1] * p3transptrs.Ns[i-1];
+        p3transptrs.Abp[i] = p3transptrs.Abp[i-1] + AvMK;
+        p3transptrs.xbp[i] = p3transptrs.xbp[i-1] + AvKN;
+        p3transptrs.ybp[i] = p3transptrs.ybp[i-1] + AvMN;
+    }
+}
+template<typename T>
+void TlrmvmBase<T>::Phase1(){
+    #pragma omp parallel for default(none)
+    for(int i=0; i<p1ptrs.Ms.size(); i++){
+        if(p1ptrs.Ms[i] != 0){
+            cblasgemv(CblasColMajor, CblasNoTrans, p1ptrs.Ms[i],
+                      p1ptrs.Ks[i], alpha, p1ptrs.Abp[i],
+                      p1ptrs.Ms[i], p1ptrs.xbp[i],
+                      1, beta, p1ptrs.ybp[i], 1);
         }
     }
 }
 
 template<typename T>
-void TlrmvmBase<T>::Phase1(){
-    #pragma omp parallel for 
-    for(int i=0; i<Ntg; i++){
-        if(AvMs[i] != 0){
-            cblasgemv(CblasColMajor, CblasNoTrans, AvMs[i],
-            AvKs[i], alpha, h_Avbp[i], 
-            AvMs[i], h_xbp[i],
-            1, beta, h_yvbp[i], 1);
+void TlrmvmBase<T>::Phase1Transpose(){
+#pragma omp parallel for default(none)
+    for(int i=0; i<p1transptrs.Ms.size(); i++){
+        if(p1transptrs.Ms[i] != 0){
+            cblasgemv(CblasColMajor, CblasTrans, p1transptrs.Ks[i],
+                      p1transptrs.Ms[i], alpha, p1transptrs.Abp[i],
+                      p1transptrs.Ks[i], // leading dimension of A in phase 3
+                      p1transptrs.xbp[i],
+                      1, beta, p1transptrs.ybp[i], 1);
         }
     }
 }
 
 template<typename T>
 void TlrmvmBase<T>::Phase2(){
-    #pragma omp parallel for 
-    for(int i=0; i<workmatgranksum; i++){
-        h_yu[h_phase2mapping[i]] = h_yv[i];
+    #pragma omp parallel for default(none)
+    for(int i=0; i<config.workmatgranksum; i++){
+        p3ptrs.x[h_phase2mapping[i]] = p1ptrs.y[i];
+    }
+}
+template<typename T>
+void TlrmvmBase<T>::Phase2Transpose() {
+#pragma omp parallel for default(none)
+    for(int i=0; i<config.workmatgranksum; i++){
+        p3transptrs.x[h_phase2mappingTranspose[i]] = p1transptrs.y[i];
     }
 }
 
 template<typename T>
 void TlrmvmBase<T>::Phase3(){
-    #pragma omp parallel for 
-    for(int i=0; i<Mtg; i++){
-        if(AuMs[i] != 0){
-            cblasgemv(CblasColMajor, CblasNoTrans, AuMs[i],
-            AuKs[i], alpha, h_Aubp[i], 
-            AuMs[i], h_yubp[i],
-            1, beta, h_ybp[i], 1);
+#pragma omp parallel for default(none)
+    for(int i=0; i<p3ptrs.Ms.size(); i++){
+        if(p3ptrs.Ks[i] != 0){
+            cblasgemv(CblasColMajor, CblasNoTrans, p3ptrs.Ms[i],
+                      p3ptrs.Ks[i], alpha, p3ptrs.Abp[i],
+                      p3ptrs.Ms[i], p3ptrs.xbp[i],
+                      1, beta, p3ptrs.ybp[i], 1);
         }
     }
+}
 
+template<typename T>
+void TlrmvmBase<T>::Phase3Transpose(){
+#pragma omp parallel for default(none)
+    for(int i=0; i<p3transptrs.Ms.size(); i++){
+        if(p3transptrs.Ks[i] != 0){
+            cblasgemv(CblasColMajor, CblasTrans, p3transptrs.Ks[i],
+                      p3transptrs.Ms[i], alpha, p3transptrs.Abp[i],
+                      p3transptrs.Ks[i], // leading dimension of A in phase 1
+                      p3transptrs.xbp[i],
+                      1, beta, p3transptrs.ybp[i], 1);
+        }
+    }
 }
 
 template<typename T>
 void TlrmvmBase<T>::MVM(){
-    Phase1();
-    Phase2();
-    Phase3();
+    if(transpose){
+        MVMTranspose();
+    }else{
+        MVMNoTranspose();
+    }
+}
+
+template<typename T>
+void TlrmvmBase<T>::MVMNoTranspose() {
+#pragma omp parallel for default(none)
+    for(int i=0; i<p1ptrs.Ms.size(); i++){
+        if(p1ptrs.Ms[i] != 0){
+            cblasgemv(CblasColMajor, CblasNoTrans, p1ptrs.Ms[i],
+                      p1ptrs.Ks[i], alpha, p1ptrs.Abp[i],
+                      p1ptrs.Ms[i], p1ptrs.xbp[i],
+                      1, beta, p1ptrs.ybp[i], 1);
+        }
+    }
+
+#pragma omp parallel for default(none)
+    for(int i=0; i<config.workmatgranksum; i++){
+        p3ptrs.x[h_phase2mapping[i]] = p1ptrs.y[i];
+    }
+
+#pragma omp parallel for default(none)
+    for(int i=0; i<p3ptrs.Ms.size(); i++){
+        if(p3ptrs.Ms[i] != 0){
+            cblasgemv(CblasColMajor, CblasNoTrans, p3ptrs.Ms[i],
+                      p3ptrs.Ks[i], alpha, p3ptrs.Abp[i],
+                      p3ptrs.Ms[i], p3ptrs.xbp[i],
+                      1, beta, p3ptrs.ybp[i], 1);
+        }
+    }
+}
+
+template<typename T>
+void TlrmvmBase<T>::MVMTranspose() {
+#pragma omp parallel for default(none)
+    for(int i=0; i<p1transptrs.Ms.size(); i++){
+        if(p1transptrs.Ms[i] != 0){
+            cblasgemv(CblasColMajor, CblasTrans, p1transptrs.Ks[i],
+                      p1transptrs.Ms[i], alpha, p1transptrs.Abp[i],
+                      p1transptrs.Ks[i], // leading dimension of A in phase 3
+                      p1transptrs.xbp[i],
+                      1, beta, p1transptrs.ybp[i], 1);
+        }
+    }
+
+#pragma omp parallel for default(none)
+    for(int i=0; i<config.workmatgranksum; i++){
+        p3transptrs.x[h_phase2mappingTranspose[i]] = p1transptrs.y[i];
+    }
+#pragma omp parallel for default(none)
+    for(int i=0; i<p3transptrs.Ms.size(); i++){
+        if(p3transptrs.Ms[i] != 0){
+            cblasgemv(CblasColMajor, CblasTrans, p3transptrs.Ks[i],
+                      p3transptrs.Ms[i], alpha, p3transptrs.Abp[i],
+                      p3transptrs.Ks[i], // leading dimension of A in phase 1
+                      p3transptrs.xbp[i],
+                      1, beta, p3transptrs.ybp[i], 1);
+        }
+    }
 }
 
 template<typename T>
@@ -306,6 +564,47 @@ void TlrmvmBase<T>::MPIMVM(){
     Phase3();
 }
 
+template<typename T>
+void TlrmvmBase<T>::TryConjugateXvec() {
+    if(!conjugate) return;
+    // no transpose logic, input is same
+    T * xwalkptr = this->xmat.RawPtr();
+    size_t offset = 0;
+    for(int i=0; i<p1ptrs.Ms.size(); i++){
+        for(int j=0; j<config.nb; j++){
+            *(p1ptrs.x + offset + j) = ElementwiseConjugate(*(xwalkptr + i*config.nb + j));
+        }
+        offset += config.nb;
+    }
+}
+
+template<typename T>
+void TlrmvmBase<T>::TryConjugateResults() {
+    if(!conjugate) return;
+    if(transpose){
+#pragma omp parallel for default(none)
+        for(int i=0; i<config.originM; i++){
+            T cur = p3transptrs.y[i];
+            finalresults[i] = ElementwiseConjugate(cur);
+        }
+    }else{
+#pragma omp parallel for default(none)
+        for(int i=0; i<config.originM; i++){
+            T cur = p3ptrs.y[i];
+            finalresults[i] = ElementwiseConjugate(cur);
+        }
+    }
+}
+
+template<typename T>
+void TlrmvmBase<T>::CopyToFinalresults() {
+    if(transpose){
+        for(int i=0; i<config.originN; i++) finalresults[i] = p3transptrs.y[i];
+    }else{
+        for(int i=0; i<config.originM; i++) finalresults[i] = p3ptrs.y[i];
+    }
+}
+
 template class TlrmvmBase<float>;
 template class TlrmvmBase<complex<float>>;
 template class TlrmvmBase<double>;
@@ -313,41 +612,55 @@ template class TlrmvmBase<complex<double>>;
 
 
 template<typename T>
-TlrmvmCPU<T>::TlrmvmCPU(TlrmvmConfig tlrmvmconfig)
-:TlrmvmBase<T>::TlrmvmBase(tlrmvmconfig)
+TlrmvmCPU<T>::TlrmvmCPU(TlrmvmConfig tlrmvmconfig):TlrmvmBase<T>::TlrmvmBase(tlrmvmconfig)
 {}
 
 template<typename T>
-void TlrmvmCPU<T>::FreeData(){
-    if(DataAv) delete[] DataAv;
-    if(DataAu) delete[] DataAu;
-    if(Datax) delete[] Datax;
-}
+TlrmvmCPU<T>::TlrmvmCPU(){}
 
 template<typename T>
 void TlrmvmCPU<T>::AllocatePhase1Buffer(){
     // host memory  phase 1
-    GetHostMemory(&h_Av, phase1Acnt);
-    GetHostMemory(&h_x, phase1Xcnt);
-    GetHostMemory(&h_yv, phase1Ycnt);
-    h_xbp[0] = h_x;
-    h_Avbp[0] = h_Av;
-    h_yvbp[0] = h_yv;
+    GetHostMemory(&p1ptrs.A, p1ptrs.Acnt);
+    GetHostMemory(&p1ptrs.x, p1ptrs.Xcnt);
+    GetHostMemory(&p1ptrs.y, p1ptrs.Ycnt);
+    p1ptrs.Abp[0] = p1ptrs.A;
+    p1ptrs.xbp[0] = p1ptrs.x;
+    p1ptrs.ybp[0] = p1ptrs.y;
+}
+
+template<typename T>
+void TlrmvmCPU<T>::AllocatePhase1BufferTranspose(){
+    // host memory  phase 1
+    p1transptrs.A = p3ptrs.A;
+    p1transptrs.x = p1ptrs.x;
+    GetHostMemory(&p1transptrs.y, p1transptrs.Ycnt);
+    p1transptrs.Abp[0] = p3ptrs.A; // use phase 3, U bases
+    p1transptrs.xbp[0] = p1ptrs.x; // use phase 1, x
+    p1transptrs.ybp[0] = p1transptrs.y; // create a new buffer
 }
 
 template<typename T>
 void TlrmvmCPU<T>::AllocatePhase3Buffer(){
     // host memory  phase 3
-    GetHostMemory(&h_Au, phase3Acnt);
-    GetHostMemory(&h_yu, phase3Xcnt);
-    GetHostMemory(&h_y, phase3Ycnt);
-    GetHostMemory(&h_yout, phase3Ycnt);
-    h_Aubp[0] = h_Au;
-    h_yubp[0] = h_yu;
-    h_ybp[0] = h_y;
-    h_youtbp[0] = h_yout;
+    GetHostMemory(&p3ptrs.A, p3ptrs.Acnt);
+    GetHostMemory(&p3ptrs.x, p3ptrs.Xcnt);
+    GetHostMemory(&p3ptrs.y, p3ptrs.Ycnt);
+    p3ptrs.Abp[0] = p3ptrs.A;
+    p3ptrs.xbp[0] = p3ptrs.x;
+    p3ptrs.ybp[0] = p3ptrs.y;
 }
 
+template<typename T>
+void TlrmvmCPU<T>::AllocatePhase3BufferTranspose(){
+    // host memory  phase 3
+    p3transptrs.A = p1ptrs.A;
+    p3transptrs.x = p3ptrs.x;
+    GetHostMemory(&p3transptrs.y, p3transptrs.Ycnt);
+    p3transptrs.Abp[0] = p1ptrs.A; // use phase 1, V bases
+    p3transptrs.xbp[0] = p3ptrs.x; // use phase 3, x
+    p3transptrs.ybp[0] = p3transptrs.y; // create a new buffer
+}
 
 template<typename T>
 void TlrmvmCPU<T>::MemoryInit(){
@@ -359,28 +672,37 @@ void TlrmvmCPU<T>::MemoryInit(){
     Phase3GetMembuffer();
     AllocatePhase3Buffer();
     Phase3CopyData();
-    FreeData();
+    FreeData(); // release raw data buffer
+    Phase1GetMembufferTranspose();
+    AllocatePhase1BufferTranspose();
+    Phase1CopyDataTranspose();
+    Phase2PrepareTranspose();
+    Phase3GetMembufferTranspose();
+    AllocatePhase3BufferTranspose();
+    Phase3CopyDataTranspose();
 }
-
 
 template<typename T>
 void TlrmvmCPU<T>::MemoryFree(){
-    // here we free tlrmvm buffer
-    FreeHostMemory(h_Av);
-    FreeHostMemory(h_x);
-    FreeHostMemory(h_yv);
-    FreeHostMemory(h_Avbp);
-    FreeHostMemory(h_xbp);
-    FreeHostMemory(h_yvbp);
-    FreeHostMemory(h_Au);
-    FreeHostMemory(h_yu);
-    FreeHostMemory(h_y);
-    FreeHostMemory(h_yout);
-    FreeHostMemory(h_Aubp);
-    FreeHostMemory(h_yubp);
-    FreeHostMemory(h_ybp);
-    FreeHostMemory(h_youtbp);
-
+    FreeHostMemory(finalresults);
+    // phase 1 pointer
+    FreeHostMemory(p1ptrs.A);
+    FreeHostMemory(p1ptrs.x);
+    FreeHostMemory(p1ptrs.y);
+    FreeHostMemory(p1ptrs.Abp);
+    FreeHostMemory(p1ptrs.xbp);
+    FreeHostMemory(p1ptrs.ybp);
+    // phase 3 pointer
+    FreeHostMemory(p3ptrs.A);
+    FreeHostMemory(p3ptrs.x);
+    FreeHostMemory(p3ptrs.y);
+    FreeHostMemory(p3ptrs.Abp);
+    FreeHostMemory(p3ptrs.xbp);
+    FreeHostMemory(p3ptrs.ybp);
+    // phase 1 transpose pointer
+    FreeHostMemory(p1transptrs.y);
+    // phase 1 transpose pointer
+    FreeHostMemory(p3transptrs.y);
 }
 
 template class TlrmvmCPU<float>;
@@ -388,6 +710,27 @@ template class TlrmvmCPU<complex<float>>;
 template class TlrmvmCPU<double>;
 template class TlrmvmCPU<complex<double>>;
 
+template<typename T>
+BatchTlrmvmCPU<T>::BatchTlrmvmCPU(vector<TlrmvmConfig> tlrmvmvec) {
+    cpuinst.resize(tlrmvmvec.size());
+    for(int i=0; i<tlrmvmvec.size(); i++){
+        cpuinst[i].UpdateConfig(tlrmvmvec[i]);
+    }
+}
+
+template<typename T>
+void BatchTlrmvmCPU<T>::MemoryInit() {
+    for(auto &x : cpuinst) x.MemoryInit();
+}
+
+template<typename T>
+void BatchTlrmvmCPU<T>::MemoryFree() {
+    for(auto &x : cpuinst) x.MemoryFree();
+}
+template class BatchTlrmvmCPU<float>;
+template class BatchTlrmvmCPU<complex<float>>;
+template class BatchTlrmvmCPU<double>;
+template class BatchTlrmvmCPU<complex<double>>;
 
 template<typename T>
 size_t TLRMVMBytesProcessed(size_t granksum, size_t nb, size_t M, size_t N){
@@ -402,6 +745,5 @@ size_t TLRMVMBytesProcessed(size_t granksum, size_t nb, size_t M, size_t N){
 template size_t TLRMVMBytesProcessed<float>(size_t, size_t, size_t, size_t);
 template size_t TLRMVMBytesProcessed<complex<float>>(size_t, size_t, size_t, size_t);
 
-} // namespace tlrmvm
 
 

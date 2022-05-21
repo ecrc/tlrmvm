@@ -1,25 +1,35 @@
-#include "common/Common.h"
-#include "common/AppUtil.h"
-#include "TlrmvmCPU.h"
-#include "PCMatrix.h"
 #include <cassert>
 #include <string>
 #include <vector>
-#include <iostream>
-#include <string.h>
-using namespace std;
-using namespace tlrmat;
+#include <cstring>
 
-namespace tlrmvm
-{
+#include "../../common/Common.hpp"
+#include "../../common/AppUtil.hpp"
+#include "TlrmvmCPU.hpp"
+#include "PCMatrix.hpp"
+
+using namespace std;
 
 template<typename T>
 PCMatrix<T>::PCMatrix(string datafolder, string acc, int nb, int originM, int originN)
-:datafolder(datafolder), acc(acc),nb(nb), originM(originM), originN(originN){
+:isconstrank(false), datafolder(datafolder), acc(acc),nb(nb), originM(originM), originN(originN){
     paddingM = CalculatePadding(originM, nb);
     paddingN = CalculatePadding(originN, nb);
     Mtglobal = paddingM / nb;
     Ntglobal = paddingN / nb;
+    maskmat = Matrix<int>(Mtglobal,Ntglobal);
+    for(int i=0; i<Mtglobal * Ntglobal; i++) maskmat.RawPtr()[i] = 1;
+}
+
+template<typename T>
+PCMatrix<T>::PCMatrix(string acc, int nb, int constranksize, int originM, int originN)
+        :acc(acc),nb(nb), isconstrank(true),constranksize(constranksize),originM(originM), originN(originN){
+    paddingM = CalculatePadding(originM, nb);
+    paddingN = CalculatePadding(originN, nb);
+    Mtglobal = paddingM / nb;
+    Ntglobal = paddingN / nb;
+    maskmat = Matrix<int>(Mtglobal,Ntglobal);
+    for(int i=0; i<Mtglobal * Ntglobal; i++) maskmat.RawPtr()[i] = 1;
 }
 
 template <typename T>
@@ -69,6 +79,9 @@ void PCMatrix<T>::RecoverDense(){
     for(int i=0; i<Mtglobal; i++){
         for(int j=0; j<Ntglobal; j++){
             Densemat[i][j] = Utilemat[i][j] * Vtilemat[i][j];
+            if(maskmat.GetElem(i, j) == 0){
+                Densemat[i][j].Fill(0.0);
+            }
         }
     }
 }
@@ -116,7 +129,8 @@ Matrix<T> PCMatrix<T>::Phase1(){
     middiley.resize(Mtglobal, vector<Matrix<T>>(Ntglobal, Matrix<T>()));
     for(int i=0; i<Mtglobal; i++){
         for(int j=0; j<Ntglobal; j++){
-            middiley[i][j] = Vtilemat[i][j] * Xvec[j]; 
+            middiley[i][j] = Vtilemat[i][j] * Xvec[j];
+            if(maskmat.GetElem(i,j) == 0) middiley[i][j].Fill(0.0);
         }
     }
     Matrix<T> rety(Rmat.Sum(), 1);
@@ -131,6 +145,28 @@ Matrix<T> PCMatrix<T>::Phase1(){
 }
 
 template <typename T>
+Matrix<T> PCMatrix<T>::Phase1Transpose(){
+    middiley.clear();
+    middiley.resize(Mtglobal, vector<Matrix<T>>(Ntglobal, Matrix<T>()));
+    for(int i=0; i<Mtglobal; i++){
+        for(int j=0; j<Ntglobal; j++){
+            middiley[i][j] = Utilemat[j][i].Transpose() * Xvec[j];
+            if(maskmat.GetElem(i,j) == 0) middiley[i][j].Fill(0.0);
+        }
+    }
+    Matrix<T> rety(Rmat.Sum(), 1);
+    size_t offset = 0;
+    for(int i=0; i<Ntglobal; i++){
+        for(int j=0; j<Mtglobal; j++){
+            memcpy(rety.RawPtr() + offset, middiley[j][i].RawPtr(),
+                   Rmat.GetElem(i,j) * sizeof(T));
+            offset += Rmat.GetElem(i,j);
+        }
+    }
+    return rety;
+}
+
+template <typename T>
 Matrix<T> PCMatrix<T>::Phase2(){
     assert(middiley.size() == Mtglobal && middiley[0].size() == Ntglobal);
     Matrix<T> rety(Rmat.Sum(), 1);
@@ -139,6 +175,19 @@ Matrix<T> PCMatrix<T>::Phase2(){
         for(int j=0; j<Ntglobal; j++){
             memcpy(rety.RawPtr() + offset, middiley[i][j].RawPtr(), Rmat.GetElem(i,j) * sizeof(T));
             offset += Rmat.GetElem(i,j);
+        }
+    }
+    return rety;
+}
+template<typename T>
+Matrix<T> PCMatrix<T>::Phase2Transpose() {
+    assert(middiley.size() == Mtglobal && middiley[0].size() == Ntglobal);
+    Matrix<T> rety(Rmat.Sum(), 1);
+    size_t offset = 0;
+    for(int i=0; i<Mtglobal; i++){
+        for(int j=0; j<Ntglobal; j++){
+            memcpy(rety.RawPtr() + offset, middiley[i][j].RawPtr(), Rmat.GetElem(j,i) * sizeof(T));
+            offset += Rmat.GetElem(j,i);
         }
     }
     return rety;
@@ -161,6 +210,23 @@ Matrix<T> PCMatrix<T>::Phase3(){
     return yout;
 }
 
+template <typename T>
+Matrix<T> PCMatrix<T>::Phase3Transpose(){
+    Matrix<T> yout(paddingN, 1);
+    memset(yout.RawPtr(), 0, sizeof(T) * paddingN);
+    size_t rowoffset = 0;
+    for(int i=0; i<Mtglobal; i++){
+        Matrix<T> blocky(nb, 1);
+        memset(blocky.RawPtr(), 0, sizeof(T) * nb);
+        for(int j=0; j<Ntglobal; j++){
+            blocky += Vtilemat[j][i].Transpose() * middiley[i][j];
+        }
+        memcpy(yout.RawPtr() + rowoffset, blocky.RawPtr(), nb * sizeof(T));
+        rowoffset += nb;
+    }
+    return yout;
+}
+
 template class PCMatrix<float>;
 template class PCMatrix<complex<float>>;
 
@@ -172,39 +238,43 @@ string acc, int nb, string problemname, int originM, int originN)
     LoadData();
 }
 
+
+
 void FPPCMatrix::LoadData(){
-    // int *DataR;
-    // float *DataAv, *DataAu;
-    // ReadAstronomyBinary(datafolder, &DataR, Mtglobal * Ntglobal, acc, nb, id);
-    // Rmat = Matrix<int>(DataR, Mtglobal, Ntglobal);
-    // size_t granksum = Rmat.Sum();
-    // ReadAstronomyBinary(datafolder+"/V", &DataAv, granksum * nb, acc ,nb, id);
-    // ReadAstronomyBinary(datafolder+"/U", &DataAu, granksum * nb, acc ,nb, id);
-    // Matrix<float>Vmat(DataAv, granksum, nb);
-    // Matrix<float>Umat(DataAu, granksum, nb);
-    // BuildTLRMatrices(Umat, Vmat);
-    // delete[] DataR;
-    // delete[] DataAv;
-    // delete[] DataAu;
-    int *DataR;
-    char filename[200];
-    sprintf(filename, "%s/%s_Rmat_nb%d_acc%s.bin", 
-    datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
-    LoadBinary(filename, &DataR, Mtglobal * Ntglobal);
-    Rmat = Matrix<int>(DataR, Mtglobal, Ntglobal);
-    size_t granksum = Rmat.Sum();
     float *DataAv, *DataAu;
-    sprintf(filename, "%s/%s_Ubases_nb%d_acc%s.bin", 
-    datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
-    size_t elems = granksum * nb;
-    LoadBinary(filename, &DataAu, elems);
-    sprintf(filename, "%s/%s_Vbases_nb%d_acc%s.bin", 
-    datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
-    LoadBinary(filename, &DataAv, elems);
+    size_t granksum;
+    if(isconstrank){
+        Rmat = Matrix<int>(Mtglobal, Ntglobal);
+        Rmat.Fill(constranksize);
+        granksum = Rmat.Sum();
+        size_t elems = granksum * nb;
+        DataAu = new float[elems];
+        DataAv = new float[elems];
+        for(int i=0; i<elems; i++){
+            DataAu[i] = 0.001;
+            DataAv[i] = 0.001;
+        }
+    }else{
+        int *DataR;
+        char filename[200];
+        sprintf(filename, "%s/%s_Rmat_nb%d_acc%s.bin",
+                datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
+        LoadBinary(filename, &DataR, Mtglobal * Ntglobal);
+        Rmat = Matrix<int>(DataR, Mtglobal, Ntglobal);
+        delete[] DataR;
+        granksum = Rmat.Sum();
+        sprintf(filename, "%s/%s_Ubases_nb%d_acc%s.bin",
+                datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
+        size_t elems = granksum * nb;
+        LoadBinary(filename, &DataAu, elems);
+        sprintf(filename, "%s/%s_Vbases_nb%d_acc%s.bin",
+                datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
+        LoadBinary(filename, &DataAv, elems);
+
+    }
     Matrix<float>Vmat(DataAv, granksum, nb);
     Matrix<float>Umat(DataAu, granksum, nb);
     BuildTLRMatrices(Umat, Vmat);
-    delete[] DataR;
     delete[] DataAv;
     delete[] DataAu;
 }
@@ -241,26 +311,45 @@ CFPPCMatrix::CFPPCMatrix(string datafolder, string acc, int nb, string problem, 
     LoadData();
 }
 
+CFPPCMatrix::CFPPCMatrix(string acc, int nb, int constranksize, int originM, int originN)
+        :PCMatrix(acc, nb, constranksize, originM, originN){
+    LoadData();
+}
+
 void CFPPCMatrix::LoadData(){
-    int *DataR;
-    char filename[200];
-    sprintf(filename, "%s/%s_Rmat_nb%d_acc%s.bin", 
-    datafolder.c_str(), this->problemname.c_str(), (int)nb, acc.c_str());
-    LoadBinary(filename, &DataR, Mtglobal * Ntglobal);
-    Rmat = Matrix<int>(DataR, Mtglobal, Ntglobal);
-    size_t granksum = Rmat.Sum();
     complex<float> *DataAv, *DataAu;
-    sprintf(filename, "%s/%s_Ubases_nb%d_acc%s.bin", 
-    datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
-    size_t elems = granksum * nb;
-    LoadBinary(filename, &DataAu, elems);
-    sprintf(filename, "%s/%s_Vbases_nb%d_acc%s.bin", 
-    datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
-    LoadBinary(filename, &DataAv, elems);
+    size_t granksum;
+    if(isconstrank){
+        Rmat = Matrix<int>(Mtglobal, Ntglobal);
+        Rmat.Fill(constranksize);
+        granksum = Rmat.Sum();
+        size_t elems = granksum * nb;
+        DataAu = new complex<float>[elems];
+        DataAv = new complex<float>[elems];
+        for(int i=0; i<elems; i++){
+            DataAu[i] = 0.001;
+            DataAv[i] = 0.001;
+        }
+    }else{
+        int *DataR;
+        char filename[200];
+        sprintf(filename, "%s/%s_Rmat_nb%d_acc%s.bin",
+                datafolder.c_str(), this->problemname.c_str(), (int)nb, acc.c_str());
+        LoadBinary(filename, &DataR, Mtglobal * Ntglobal);
+        Rmat = Matrix<int>(DataR, Mtglobal, Ntglobal);
+        granksum = Rmat.Sum();
+        sprintf(filename, "%s/%s_Ubases_nb%d_acc%s.bin",
+                datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
+        size_t elems = granksum * nb;
+        LoadBinary(filename, &DataAu, elems);
+        sprintf(filename, "%s/%s_Vbases_nb%d_acc%s.bin",
+                datafolder.c_str(), problemname.c_str(), (int)nb, acc.c_str());
+        LoadBinary(filename, &DataAv, elems);
+        delete[] DataR;
+    }
     Matrix<complex<float>>Vmat(DataAv, granksum, nb);
     Matrix<complex<float>>Umat(DataAu, granksum, nb);
     BuildTLRMatrices(Umat, Vmat);
-    delete[] DataR;
     delete[] DataAv;
     delete[] DataAu;
 }
@@ -270,30 +359,6 @@ double CFPPCMatrix::GetDifference(Matrix<complex<float>>& m1, Matrix<complex<flo
     return sqrt(tmp.real()*tmp.real() + tmp.imag()*tmp.imag());
 }
 
-// Matrix<float> CFPPCMatrix::GetReal(Matrix<complex<float>> &tile){
-//     int m = tile.Row();
-//     int n = tile.Col();
-//     Matrix<float> real(m,n);
-//     for(int i=0; i<m; i++){
-//         for(int j=0; j<n; j++){
-//             real.SetElem(i,j,tile.GetElem(i,j).real());
-//         }
-//     }
-//     return real;
-// }
 
-// Matrix<float> CFPPCMatrix::GetImag(Matrix<complex<float>> &tile){
-//     int m = tile.Row();
-//     int n = tile.Col();
-//     Matrix<float> real(m,n);
-//     for(int i=0; i<m; i++){
-//         for(int j=0; j<n; j++){
-//             real.SetElem(i,j,tile.GetElem(i,j).imag());
-//         }
-//     }
-//     return real;
-// }
-
-} // namespace tlrmvm
 
 

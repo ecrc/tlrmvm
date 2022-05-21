@@ -1,15 +1,16 @@
-#include "Util.h"
+
 #include <complex>
 #include <algorithm>
 #include <iostream>
 #include <cassert>
 #include <string>
-#include <time.h>
+#include <memory.h>
+#include <ctime>
 #include <sys/time.h>
-
+#include "Util.hpp"
+#include <fcntl.h>
 
 using namespace std;
-namespace tlrmat{
 
 double gettime(void)
 {
@@ -146,15 +147,21 @@ string ArgsParser::getstring(string key){
     return argmap[key];
 }
 
+bool ArgsParser::getbool(string key){
+    if(argmap.find(key) == argmap.end())
+    {cout << "key error in getint" << endl; exit(0);}
+    return atoi(argmap[key].c_str());
+}
+
+
 
 template<typename T>
 void LoadBinary(char *filename, T **databuffer, unsigned long elems)
 {
-    FILE *f = fopen(filename, "rb");
+    int fd = open(filename, O_RDONLY);
     T *tmpbuffer = new T[elems];
-    int ret = fread(tmpbuffer, sizeof(T), elems, f); 
-    assert(ret == elems);
-    fclose(f);
+    int ret = read(fd, (void*)tmpbuffer, sizeof(T) * elems);
+    close(fd);
     databuffer[0] = tmpbuffer;
 }
 template void LoadBinary<int>(char*, int **, unsigned long);
@@ -164,9 +171,114 @@ template void LoadBinary<complex<float>>(char*, complex<float> **, unsigned long
 template void LoadBinary<complex<double>>(char*, complex<double> **, unsigned long);
 
 
-} //namespace tlrmat
+void init_alpha_beta(float &alpha, float &beta){
+    alpha = (float)1.0;
+    beta = (float)0.0;
+}
+
+void init_alpha_beta(complex<float> &alpha, complex<float> &beta){
+    alpha = complex<float>(1.0,0.0);
+    beta = complex<float>(0.0,0.0);
+}
+void init_alpha_beta(double &alpha, double &beta){
+    alpha = (double)1.0;
+    beta = (double)0.0;
+}
+void init_alpha_beta(complex<double> &alpha, complex<double> &beta){
+    alpha = complex<double>(1.0,0.0);
+    beta = complex<double>(0.0,0.0);
+}
+
+size_t ElementwiseConjugate(size_t x){return x;}
+
+int ElementwiseConjugate(int x){return x;}
+
+float ElementwiseConjugate(float x){return x;}
+
+double ElementwiseConjugate(double x){return x;}
+
+complex<float> ElementwiseConjugate(complex<float> x)
+{return complex<float>(x.real(), -x.imag());}
+
+complex<double> ElementwiseConjugate(complex<double> x)
+{return complex<double>(x.real(), -x.imag());}
 
 
 
+template<typename T>
+void CopyData(T *dst, T *src, size_t n){
+    memcpy(dst, src, sizeof(T) * n);
+}
 
- 
+template void CopyData<int>(int*, int*, size_t);
+template void CopyData<int*>(int**, int**, size_t);
+template void CopyData<float>(float*, float*, size_t);
+template void CopyData<float*>(float* *, float* *, size_t);
+template void CopyData<double>(double*, double*, size_t);
+template void CopyData<double*>(double**, double**, size_t);
+template void CopyData<std::complex<float>>(std::complex<float>*, std::complex<float>*, size_t);
+template void CopyData(std::complex<float>**, std::complex<float>**, size_t);
+template void CopyData(std::complex<double>*, std::complex<double>*, size_t);
+template void CopyData(std::complex<double>**, std::complex<double>**, size_t);
+
+
+template<typename T>
+void GetHostMemory(T **A, size_t n){
+    T * tmp = new T[n];
+    memset(tmp, 0, sizeof(T) * n);
+    A[0] = tmp;
+}
+template void GetHostMemory(char **, size_t);
+template void GetHostMemory(char ***, size_t);
+template void GetHostMemory(unsigned short **, size_t);
+template void GetHostMemory(unsigned short ***, size_t);
+template void GetHostMemory(short **, size_t);
+template void GetHostMemory(short ***, size_t);
+template void GetHostMemory(int8_t **, size_t);
+template void GetHostMemory(int8_t ***, size_t);
+template void GetHostMemory(int **, size_t);
+template void GetHostMemory(int ***, size_t);
+template void GetHostMemory(unsigned long int **, size_t);
+template void GetHostMemory(unsigned long int ***, size_t);
+template void GetHostMemory(float **, size_t);
+template void GetHostMemory(float ***, size_t);
+template void GetHostMemory(double **, size_t);
+template void GetHostMemory(double ***, size_t);
+template void GetHostMemory(std::complex<float> **, size_t);
+template void GetHostMemory(std::complex<float> ***, size_t);
+template void GetHostMemory(std::complex<double> **, size_t);
+template void GetHostMemory(std::complex<double> ***, size_t);
+#ifdef USE_FUJITSU
+template void GetHostMemory(__fp16 **, size_t);
+template void GetHostMemory(__fp16 ***, size_t);
+#endif
+
+template<typename T>
+void FreeHostMemory(T *A){
+    delete[] A;
+}
+template void FreeHostMemory<int8_t>(int8_t*);
+template void FreeHostMemory<float>(float*);
+template void FreeHostMemory<std::complex<float>>(std::complex<float>*);
+template void FreeHostMemory<double>(double*);
+template void FreeHostMemory<std::complex<double>>(std::complex<double>*);
+template void FreeHostMemory<float*>(float**);
+template void FreeHostMemory<std::complex<float>*>(std::complex<float>**);
+template void FreeHostMemory<double*>(double**);
+template void FreeHostMemory<std::complex<double>*>(std::complex<double>**);
+
+
+void CaluclateTotalElements(std::vector<size_t> Ms, std::vector<size_t> Ks, std::vector<size_t> Ns,
+                            size_t &Atotal, size_t &Btotal, size_t &Ctotal){
+    Atotal = Btotal = Ctotal = 0;
+    for(int i=0; i<Ms.size(); i++){
+        Atotal += Ms[i] * Ks[i];
+    }
+    for(int i=0; i<Ms.size(); i++){
+        Btotal += Ks[i] * Ns[i];
+    }
+    for(int i=0; i<Ms.size(); i++){
+        Ctotal += Ms[i] * Ns[i];
+    }
+}
+

@@ -4,13 +4,8 @@
 
 #include <algorithm>
 #include <mpi.h>
-// include common component
-#include <common/Common.h>
-using namespace tlrmat;
-
-// include tlrmvm component
-#include <tlrmvm/Tlrmvm.h>
-using namespace tlrmvm;
+#include <common/Common.hpp>
+#include <tlrmvm/Tlrmvm.hpp>
 using namespace std;
 int main (int argc, char ** argv){
     int originM;
@@ -54,42 +49,50 @@ int main (int argc, char ** argv){
     }
     tlrmvmconfig.Maskmat = maskmat;
     TlrmvmCPU<float> tlrmvmptr(tlrmvmconfig);
-    double bytes = TLRMVMBytesProcessed<float>(tlrmvmptr.granksum, 
-    tlrmvmptr.nb, tlrmvmptr.paddingM, tlrmvmptr.paddingN);
+    double bytes = TLRMVMBytesProcessed<float>(tlrmvmptr.config.granksum,
+                                               tlrmvmptr.config.nb, tlrmvmptr.config.paddingM,
+                                               tlrmvmptr.config.paddingN);
     tlrmvmptr.MemoryInit();
+    auto finalbuffer = new float[tlrmvmptr.config.originM];
+    for(int i=0; i<tlrmvmptr.config.originM; i++) finalbuffer[i] = 0.0;
     for(int i=0; i<loopsize; i++){
         MPI_Barrier(MPI_COMM_WORLD);
         auto start = std::chrono::steady_clock::now();
         tlrmvmptr.MVM();
         MPI_Barrier(MPI_COMM_WORLD);
-        MPI_Reduce(tlrmvmptr.h_y, tlrmvmptr.h_yout, tlrmvmptr.originM, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce(tlrmvmptr.finalresults,
+                   finalbuffer, tlrmvmptr.config.originM,
+                   MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
         auto end = std::chrono::steady_clock::now();
         auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         timestat.push_back(elapsed_time*1e-6);
     }
     vector<double> mergetime(timestat.size(), 0);
-    MPI_Allreduce(timestat.data(), mergetime.data(), timestat.size(), MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(timestat.data(), mergetime.data(),
+                  timestat.size(), MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     if(rank == 0){
         FPPCMatrix seismicpcmat(datafolder, acc, nb, problemname, originM, originN);
         seismicpcmat.setX(tlrmvmptr.xmat);
         seismicpcmat.GetDense();
         Matrix<float> yv_pc = seismicpcmat.Phase1();
-        auto hyv = Matrix<float>(tlrmvmptr.h_yv, tlrmvmptr.workmatgranksum, 1);
+        auto hyv = Matrix<float>(tlrmvmptr.p1ptrs.y, tlrmvmptr.config.workmatgranksum, 1);
         // cout << " Phase 1 Correctness : " << hyv.allclose(yv_pc) << endl;
         Matrix<float> yu_pc = seismicpcmat.Phase2();
-        auto hyu = Matrix<float>(tlrmvmptr.h_yu, tlrmvmptr.workmatgranksum, 1);
+        auto hyu = Matrix<float>(tlrmvmptr.p3ptrs.x, tlrmvmptr.config.workmatgranksum, 1);
         // cout << " Phase 2 Correctness : " << hyu.allclose(yu_pc) << endl;
         Matrix<float> y_pc = seismicpcmat.Phase3();
-        auto hy = Matrix<float>(tlrmvmptr.h_yout, tlrmvmptr.originM, 1);
+        auto hy = Matrix<float>(tlrmvmptr.p3ptrs.y, tlrmvmptr.config.originM, 1);
         cout << " Check MPI Phase 3 Correctness : "<< hy.allclose(y_pc) << endl;
         std::sort(mergetime.begin(), mergetime.end());
         int N = mergetime.size();
         cout << "median " << mergetime[N / 2] * 1e6 << " us."<< endl;
-        double bytes = TLRMVMBytesProcessed<float>(tlrmvmptr.granksum, tlrmvmptr.nb, originM, originN);
+        double bytes = TLRMVMBytesProcessed<float>(tlrmvmptr.config.granksum,
+                                                   tlrmvmptr.config.nb, originM, originN);
         cout << "U and V bases size: " << bytes * 1e-6 << " MB." << endl;
         cout << "Bandwidth " << bytes / mergetime[N/2] * 1e-9 << " GB/s" << endl;
     }
     tlrmvmptr.MemoryFree();
+    delete[] finalbuffer;
     MPI_Finalize();
     return 0;
 }

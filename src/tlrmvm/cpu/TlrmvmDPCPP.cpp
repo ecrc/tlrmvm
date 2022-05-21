@@ -1,9 +1,13 @@
-#include "TlrmvmCPU.h"
-#include "TlrmvmDPCPP.h"
-#include "common/Common.h"
-#include "common/AppUtil.h"
+
+#ifdef USE_MPI
 #include <mpi.h>
+#endif
 #include <oneapi/mkl.hpp>
+
+#include "TlrmvmCPU.hpp"
+#include "TlrmvmDPCPP.hpp"
+#include "common/Common.hpp"
+#include "../../common/AppUtil.hpp"
 
 namespace tlrmvm {
 

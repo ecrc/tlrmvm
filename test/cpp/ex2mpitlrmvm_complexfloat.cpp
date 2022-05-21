@@ -1,16 +1,12 @@
 #include <string>
 #include <vector>
 #include <chrono>
-
+#include <memory.h>
 #include <algorithm>
 #include <mpi.h>
-// include common component
-#include <common/Common.h>
-using namespace tlrmat;
 
-// include tlrmvm component
-#include <tlrmvm/Tlrmvm.h>
-using namespace tlrmvm;
+#include <common/Common.hpp>
+#include <tlrmvm/Tlrmvm.hpp>
 using namespace std;
 int main (int argc, char ** argv){
     int originM;
@@ -32,10 +28,10 @@ int main (int argc, char ** argv){
     originN = argparser.getint("N");
     nb = argparser.getint("nb");
     loopsize = argparser.getint("loopsize");
-    acc = argparser.getstring("errorthreshold");
-    problemname = argparser.getstring("problemname");
+    acc = argparser.getstring("threshold");
+    problemname = argparser.getstring("problem");
     datafolder = argparser.getstring("datafolder");
-    char rpath[100]; 
+    char rpath[300];
     sprintf(rpath, "%s/%s_Rmat_nb%d_acc%s.bin", datafolder.c_str(), problemname.c_str(), nb, acc.c_str());
     rankfile = string(rpath);
     TlrmvmConfig tlrmvmconfig(originM, originN, nb, datafolder, acc, problemname);
@@ -52,43 +48,56 @@ int main (int argc, char ** argv){
             maskmat.SetElem(i,j,1);
         }
     }
-    tlrmvmconfig.Maskmat = maskmat;
+    tlrmvmconfig.UpdateMaskmat(maskmat);
     TlrmvmCPU<complex<float>> tlrmvmptr(tlrmvmconfig);
-    double bytes = TLRMVMBytesProcessed<complex<float>>(tlrmvmptr.granksum, 
-    tlrmvmptr.nb, tlrmvmptr.paddingM, tlrmvmptr.paddingN);
+    auto finalbuffer = new complex<float>[tlrmvmptr.config.paddingM];
+//    tlrmvmptr.xmat.Fill(0.001);
+    memset(finalbuffer, 0, sizeof(complex<float>) * tlrmvmptr.config.paddingM);
     tlrmvmptr.MemoryInit();
+    auto curx = Matrix<complex<float>>(tlrmvmptr.config.originN, 1);
+    curx.Fill(complex<float>(0.1,1.0));
+    tlrmvmptr.setX(curx.RawPtr(), curx.Shape()[0]);
     for(int i=0; i<loopsize; i++){
         MPI_Barrier(MPI_COMM_WORLD);
         auto start = std::chrono::steady_clock::now();
         tlrmvmptr.MVM();
+        tlrmvmptr.CopyToFinalresults();
         MPI_Barrier(MPI_COMM_WORLD);
-        MPI_Reduce(tlrmvmptr.h_y, tlrmvmptr.h_yout, tlrmvmptr.originM, MPI_COMPLEX, MPI_SUM, 0, MPI_COMM_WORLD);
+        MPI_Reduce(tlrmvmptr.finalresults,
+                   finalbuffer, tlrmvmptr.config.paddingM,
+                   MPI_COMPLEX, MPI_SUM, 0, MPI_COMM_WORLD);
         auto end = std::chrono::steady_clock::now();
         auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         timestat.push_back(elapsed_time*1e-6);
     }
     vector<double> mergetime(timestat.size(), 0);
-    MPI_Allreduce(timestat.data(), mergetime.data(), timestat.size(), MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPI_Allreduce(timestat.data(), mergetime.data(),
+                  timestat.size(), MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     if(rank == 0){
+#ifndef USE_NEC
         CFPPCMatrix seismicpcmat(datafolder, acc, nb, problemname, originM, originN);
         seismicpcmat.setX(tlrmvmptr.xmat);
         seismicpcmat.GetDense();
         Matrix<complex<float>> yv_pc = seismicpcmat.Phase1();
-        auto hyv = Matrix<complex<float>>(tlrmvmptr.h_yv, tlrmvmptr.workmatgranksum, 1);
-        // cout << " Phase 1 Correctness : " << hyv.allclose(yv_pc) << endl;
+        auto hyv = Matrix<complex<float>>(tlrmvmptr.p1ptrs.y, tlrmvmptr.config.workmatgranksum, 1);
+//        cout << " Phase 1 Correctness : " << hyv.allclose(yv_pc) << endl;
         Matrix<complex<float>> yu_pc = seismicpcmat.Phase2();
-        auto hyu = Matrix<complex<float>>(tlrmvmptr.h_yu, tlrmvmptr.workmatgranksum, 1);
-        // cout << " Phase 2 Correctness : " << hyu.allclose(yu_pc) << endl;
+        auto hyu = Matrix<complex<float>>(tlrmvmptr.p3ptrs.x, tlrmvmptr.config.workmatgranksum, 1);
+//        cout << " Phase 2 Correctness : " << hyu.allclose(yu_pc) << endl;
         Matrix<complex<float>> y_pc = seismicpcmat.Phase3();
-        auto hy = Matrix<complex<float>>(tlrmvmptr.h_yout, tlrmvmptr.originM, 1);
-        cout << " Check MPI Phase 3 Correctness : "<< hy.allclose(y_pc) << endl;
+        auto hy = Matrix<complex<float>>(finalbuffer, tlrmvmptr.config.originM, 1);
+        auto denseout = seismicpcmat.GetDense() * tlrmvmptr.xmat;
+        cout << " Check MPI Phase 3 Correctness : "<< hy.allclose(denseout) << endl;
+#endif
         std::sort(mergetime.begin(), mergetime.end());
         int N = mergetime.size();
         cout << "median " << mergetime[N / 2] * 1e6 << " us."<< endl;
-        double bytes = TLRMVMBytesProcessed<complex<float>>(tlrmvmptr.granksum, tlrmvmptr.nb, originM, originN);
+        double bytes = TLRMVMBytesProcessed<complex<float>>(tlrmvmptr.config.granksum,
+                                                   tlrmvmptr.config.nb, originM, originN);
         cout << "U and V bases size: " << bytes * 1e-6 << " MB." << endl;
         cout << "Bandwidth " << bytes / mergetime[N/2] * 1e-9 << " GB/s" << endl;
     }
+    delete[] finalbuffer;
     tlrmvmptr.MemoryFree();
     MPI_Finalize();
     return 0;

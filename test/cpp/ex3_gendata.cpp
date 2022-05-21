@@ -4,17 +4,10 @@
 
 #include <algorithm>
 #include <mpi.h>
-// include common component
-#include <common/Common.h>
-using namespace tlrmat;
 
-// include tlrmvm component
-#include <tlrmvm/Tlrmvm.h>
-using namespace tlrmvm;
+#include <common/Common.hpp>
+#include <tlrmvm/Tlrmvm.hpp>
 using namespace std;
-
-// This App is used to generate synthetic dataset as input of tlrmvm.
-// The rank is constant.
 
 struct Params{
     int originM;

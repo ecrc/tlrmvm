@@ -1,7 +1,7 @@
-#include <cublas_v2.h>
 #include <cuda.h>
+#include <cublas_v2.h> // if you need CUBLAS v2, include before magma.h
+#include <cuComplex.h>
 
-namespace cudatlrmat {
 
 // overload cublas gemv Interface
 
@@ -96,36 +96,36 @@ __half *C, int ldc){
 
 
 // cublas gemmex interface
-
-cublasStatus_t cublasgemmex(cublasHandle_t handle,
-cublasOperation_t transa,
-cublasOperation_t transb,
-int m, int n, int k, const void *alpha, const void *A,
-cudaDataType_t Atype, int lda, const void *B,
-cudaDataType_t Btype, int ldb, const void *beta, void *C,
-cudaDataType_t Ctype, int ldc, cublasComputeType_t computeType, 
-cublasGemmAlgo_t algo){
-    return cublasGemmEx(handle, transa, transb, m, n, k, alpha, A, Atype, lda, B, Btype, ldb,
-    beta, C, Ctype, ldc, computeType, algo);
-}
-
-cublasStatus_t cublassgemmex(cublasHandle_t handle,
-cublasOperation_t transa, cublasOperation_t transb,
-int m, int n, int k, const float *alpha,
-const void *A, cudaDataType_t  Atype, int lda,
-const void *B, cudaDataType_t  Btype, int ldb,
-const float *beta, void *C, cudaDataType_t  Ctype, int ldc){
-    return cublasSgemmEx(handle, transa, transb, m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc);
-}
-
-cublasStatus_t cublascgemmex(cublasHandle_t handle,
-cublasOperation_t transa, cublasOperation_t transb,
-int m, int n, int k, const cuComplex *alpha,
-const void *A, cudaDataType_t  Atype, int lda,
-const void *B, cudaDataType_t  Btype, int ldb,
-const cuComplex *beta, void *C, cudaDataType_t  Ctype, int ldc){
-    return cublasCgemmEx(handle, transa, transb, m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc);
-}
+//
+//cublasStatus_t cublasgemmex(cublasHandle_t handle,
+//cublasOperation_t transa,
+//cublasOperation_t transb,
+//int m, int n, int k, const void *alpha, const void *A,
+//cudaDataType_t Atype, int lda, const void *B,
+//cudaDataType_t Btype, int ldb, const void *beta, void *C,
+//cudaDataType_t Ctype, int ldc, cublasComputeType_t computeType,
+//cublasGemmAlgo_t algo){
+//    return cublasGemmEx(handle, transa, transb, m, n, k, alpha, A, Atype, lda, B, Btype, ldb,
+//    beta, C, Ctype, ldc, computeType, algo);
+//}
+//
+//cublasStatus_t cublassgemmex(cublasHandle_t handle,
+//cublasOperation_t transa, cublasOperation_t transb,
+//int m, int n, int k, const float *alpha,
+//const void *A, cudaDataType_t  Atype, int lda,
+//const void *B, cudaDataType_t  Btype, int ldb,
+//const float *beta, void *C, cudaDataType_t  Ctype, int ldc){
+//    return cublasSgemmEx(handle, transa, transb, m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc);
+//}
+//
+//cublasStatus_t cublascgemmex(cublasHandle_t handle,
+//cublasOperation_t transa, cublasOperation_t transb,
+//int m, int n, int k, const cuComplex *alpha,
+//const void *A, cudaDataType_t  Atype, int lda,
+//const void *B, cudaDataType_t  Btype, int ldb,
+//const cuComplex *beta, void *C, cudaDataType_t  Ctype, int ldc){
+//    return cublasCgemmEx(handle, transa, transb, m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc);
+//}
 
 
 // overload cublas gemmbatched Interface
@@ -200,25 +200,6 @@ int batchCount){
     Barray, ldb, beta, Carray, ldc, batchCount);
 }
 
-cublasStatus_t cublasgemmbatchedex(cublasHandle_t handle,
-cublasOperation_t transa, cublasOperation_t transb,
-int m, int n, int k, 
-const void *alpha, 
-const void *Aarray[],
-cudaDataType Atype, int lda,
-const void *Barray[],
-cudaDataType Btype, int ldb,
-const void *beta,
-void *Carray[],
-cudaDataType Ctype, int ldc,
-int batchCount,
-cublasComputeType_t computeType,
-cublasGemmAlgo_t algo){
-    return cublasGemmBatchedEx(handle, transa,transb, m, n, k, alpha, Aarray, Atype, lda,
-    Barray, Btype, ldb, beta, Carray, Ctype, ldc, batchCount, computeType, algo);
-}
 
-
-} // namespace tlrmvm
 
 

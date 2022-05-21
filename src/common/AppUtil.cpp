@@ -1,6 +1,7 @@
-#include "AppUtil.h"
-#include "common/cpu/Util.h"
 #include <cassert>
+
+#include "AppUtil.hpp"
+#include "cpu/Util.hpp"
 
 template<typename T>
 void ReadBinary(string absfilepath, T * outbuffer, size_t length){
@@ -39,7 +40,7 @@ void ReadSeismicBinary(string prefix, int ** outbuffer, size_t length, string ac
     string pstr(postfix);
     int * retptr;
     retptr = new int[length];
-    string abspath = tlrmat::PathJoin({prefix, postfix});
+    string abspath = PathJoin({prefix, postfix});
     ReadBinary(abspath, retptr, length);
     outbuffer[0] = retptr;
 }
@@ -67,10 +68,10 @@ void ReadSeismicBinaryX(string prefix, complex<float> ** outX, size_t length, st
     string xstr = "xvector/fdplus_";
     sprintf(postfix, "%s%d_real.bin", xstr.c_str(), id);
     dataptr[0] = new float[length];
-    ReadBinary(tlrmat::PathJoin({prefix, postfix}), dataptr[0], length);
+    ReadBinary(PathJoin({prefix, postfix}), dataptr[0], length);
     sprintf(postfix, "%s%d_imag.bin", xstr.c_str(), id);
     dataptr[1] = new float[length];
-    ReadBinary(tlrmat::PathJoin({prefix, postfix}), dataptr[1], length);
+    ReadBinary(PathJoin({prefix, postfix}), dataptr[1], length);
     complex<float> * Xptr = new complex<float>[length];
 
     for(size_t i=0; i<length; i++){
@@ -79,3 +80,28 @@ void ReadSeismicBinaryX(string prefix, complex<float> ** outX, size_t length, st
     outX[0] = Xptr;
     for(int i=0; i<2; i++) delete[] dataptr[i];
 }
+
+void RandomX(float * xvector, int length){
+    for(int i=0; i<length; i++){
+        xvector[i] = (float)rand() / (float)2147483647;
+    }
+}
+void RandomX(complex<float> *xvector, int length){
+    for(int i=0; i<length; i++){
+//        xvector[i] = complex<float> ( (float)rand() / (float)2147483647 , (float)rand() / (float)2147483647);
+        xvector[i] = complex<float> ( 1.0 , 3.0);
+    }
+}
+
+void RandomX(double * xvector, int length){
+    for(int i=0; i<length; i++){
+        xvector[i] = (double)rand() / (float)2147483647;
+    }
+}
+void RandomX(complex<double> *xvector, int length){
+    for(int i=0; i<length; i++){
+        xvector[i] = complex<double> ((double)rand() / (double)2147483647 , (double)rand() / (double)2147483647);
+    }
+}
+
+
