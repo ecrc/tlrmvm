@@ -157,7 +157,6 @@ PYBIND11_MODULE(TLRMVMpy, m) {
     m.def("BatchUpdatexgpu_INT8_cf", &BatchUpdatex_INT8);
     m.def("BatchUpdateygpu_INT8_cf", &BatchUpdatey_INT8);
 
-    addbatchtlrmvmgpufp16int8(m);
 
     m.def("SetMaskmat", &SetMaskmat);
 }

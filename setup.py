@@ -64,7 +64,7 @@ class build_ext(build_ext_orig):
                            "-DCMAKE_C_COMPILER={}".format(self.c_compiler),
                            "-DCMAKE_CXX_COMPILER={}".format(self.cxx_compiler),
                            "-DCMAKE_CUDA_HOST_COMPILER={}".format(self.cxx_compiler),
-                           "-DCMAKE_CUDA_FLAGS='-ccbin {}'".format(self.cxx_compiler),
+                           #"-DCMAKE_CUDA_FLAGS='-ccbin {}'".format(self.cxx_compiler),
                            "-DUSE_MKL=ON",
                            "-DUSE_MPI=ON",
                            "-DBUILD_CUDA=ON",

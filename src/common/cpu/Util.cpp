@@ -137,20 +137,14 @@ ArgsParser::ArgsParser(int argc, char**argv){
 
 int ArgsParser::getint(string key){
     if(argmap.find(key) == argmap.end())
-    {cout << "key error in getint" << endl; exit(0);}
+    {cout << "key error in getint:" << key << endl; exit(0);}
     return atoi(argmap[key].c_str());
 }
 
 string ArgsParser::getstring(string key){
     if(argmap.find(key) == argmap.end())
-    {cout << "key error in getstring" << endl; exit(0);}
+    {cout << "key error in getstring: "<< key << endl; exit(0);}
     return argmap[key];
-}
-
-bool ArgsParser::getbool(string key){
-    if(argmap.find(key) == argmap.end())
-    {cout << "key error in getint" << endl; exit(0);}
-    return atoi(argmap[key].c_str());
 }
 
 

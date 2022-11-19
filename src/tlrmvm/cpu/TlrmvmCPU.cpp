@@ -7,6 +7,8 @@
 #include "../../common/AppUtil.hpp"
 #include "../../common/cpu/Util.hpp"
 #include <memory>
+#include <string.h>
+#include <stdio.h>
 #ifdef USE_MPI
 #include <mpi.h>
 #endif
@@ -124,7 +126,7 @@ void TlrmvmBase<T>::InitData(){
         RandomX(Datax, config.originN);
         this->xmat = Matrix<T>(Datax, config.paddingN, 1);
     }else{
-        char filename[200];
+        char filename[300];
         sprintf(filename, "%s/%s_Ubases_nb%d_acc%s.bin",
                 config.datafolder.c_str(), config.problemname.c_str(),config.nb, config.acc.c_str());
         size_t elems = config.granksum * config.nb;
@@ -187,10 +189,10 @@ void TlrmvmBase<T>::Phase1GetMembuffer(){
 
 template<typename T>
 void TlrmvmBase<T>::Phase1GetMembufferTranspose() {
-    GetHostMemory(&p1transptrs.Abp, config.Ntg);
-    GetHostMemory(&p1transptrs.xbp, config.Ntg);
-    GetHostMemory(&p1transptrs.ybp, config.Ntg);
-    for(int i=0; i<config.Ntg; i++){
+    GetHostMemory(&p1transptrs.Abp, config.Mtg);
+    GetHostMemory(&p1transptrs.xbp, config.Mtg);
+    GetHostMemory(&p1transptrs.ybp, config.Mtg);
+    for(int i=0; i<config.Mtg; i++){
         p1transptrs.Ms.push_back(config.rowsum[i]);
         p1transptrs.Ks.push_back(config.nb);
         p1transptrs.Ns.push_back(1);
@@ -198,7 +200,7 @@ void TlrmvmBase<T>::Phase1GetMembufferTranspose() {
     p1transptrs.Acnt = 0;
     p1transptrs.Xcnt = 0;
     p1transptrs.Ycnt = 0;
-    for(int i=0; i<config.Ntg; i++){
+    for(int i=0; i<config.Mtg; i++){
         p1transptrs.Acnt += p1transptrs.Ms[i] * p1transptrs.Ks[i];
         p1transptrs.Xcnt += p1transptrs.Ks[i] * p1transptrs.Ns[i];
         p1transptrs.Ycnt += p1transptrs.Ms[i] * p1transptrs.Ns[i];
@@ -347,10 +349,10 @@ void TlrmvmBase<T>::Phase2PrepareTranspose() {
 
 template<typename T>
 void TlrmvmBase<T>::Phase3GetMembuffer(){
-    GetHostMemory(&p3ptrs.Abp, config.Ntg);
-    GetHostMemory(&p3ptrs.xbp, config.Ntg);
-    GetHostMemory(&p3ptrs.ybp, config.Ntg);
-    for(int i=0; i<config.Ntg; i++){
+    GetHostMemory(&p3ptrs.Abp, config.Mtg);
+    GetHostMemory(&p3ptrs.xbp, config.Mtg);
+    GetHostMemory(&p3ptrs.ybp, config.Mtg);
+    for(int i=0; i<config.Mtg; i++){
         p3ptrs.Ms.push_back(config.nb);
         p3ptrs.Ks.push_back(config.rowsum[i]);
         p3ptrs.Ns.push_back(1);
@@ -358,7 +360,7 @@ void TlrmvmBase<T>::Phase3GetMembuffer(){
     p3ptrs.Acnt = 0;
     p3ptrs.Xcnt = 0;
     p3ptrs.Ycnt = 0;
-    for(int i=0; i<config.Ntg; i++){
+    for(int i=0; i<config.Mtg; i++){
         p3ptrs.Acnt += p3ptrs.Ms[i] * p3ptrs.Ks[i];
         p3ptrs.Xcnt += p3ptrs.Ks[i] * p3ptrs.Ns[i];
         p3ptrs.Ycnt += p3ptrs.Ms[i] * p3ptrs.Ns[i];
