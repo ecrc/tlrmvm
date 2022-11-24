@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #ifndef OPENBLAS_INTERFACE_H
 #define OPENBLAS_INTERFACE_H
 

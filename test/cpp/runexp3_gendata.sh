@@ -1,3 +1,8 @@
+#
+#  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                      All rights reserved.
+#
+
 ./install/test/ex3_gendata --M=4802 --N=19078 \
 --errorthreshold=0.0001 --problemname=Sytheticfloat \
 --datafolder=$WORK_ROOT --nb=256 --constrank=100 --dtype=float

@@ -1,6 +1,7 @@
+#   @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                       All rights reserved.
+
 ##################################################################
-# @copyright (c) 2021- King Abdullah University of Science and
-#                      Technology (KAUST). All rights reserved.
 #
 # Author: Yuxi Hong
 # Description: A tools for generating compressed U and V bases

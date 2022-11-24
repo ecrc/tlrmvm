@@ -1,3 +1,8 @@
+#
+#  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                      All rights reserved.
+#
+
 OMP_NUM_THREADS=28 mpirun -np 2 --map-by L3cache:PE=28 \
 ./install/test/ex2mpitlrmvm_complexfloat --M=9801 --N=9801 \
 --errorthreshold=0.001 --problemname=SeismicFreq100 \

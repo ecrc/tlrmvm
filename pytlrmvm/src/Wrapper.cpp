@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #include <pybind11/pybind11.h>
 #include <pybind11/operators.h>
 #include <pybind11/numpy.h>

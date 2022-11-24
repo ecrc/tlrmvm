@@ -1,4 +1,7 @@
-#pragma once 
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
+#pragma once
 #include "TlrmvmCPU.hpp"
 #include <CL/sycl.hpp>
 

@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #ifndef MKL_INTERFACE_H
 #define MKL_INTERFACE_H
 

@@ -13,6 +13,9 @@ def __bootstrap__():
     spec.loader.exec_module(mod)
 __bootstrap__()
 
+#   @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                       All rights reserved.
+
 from ._wrapper import *
 # from .tlrmvmtools import *
 # from .tlrmat import *

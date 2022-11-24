@@ -3,7 +3,10 @@ This example gives you a brief introduction of how you can use TLRMVM in python.
 We provide only TLRMVMCPU interface here, but one can easily follow the same way
 to provide interface to others.
 """
-import numpy as np 
+#   @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                       All rights reserved.
+
+import numpy as np
 import sys
 import os
 import time

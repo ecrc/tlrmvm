@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 //
 // Created by Yuxi Hong on 11/03/2022.
 //

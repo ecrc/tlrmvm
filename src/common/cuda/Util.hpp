@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #ifndef CUDA_UTIL_H
 #define CUDA_UTIL_H
 

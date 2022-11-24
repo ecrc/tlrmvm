@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #include <cuda.h>
 #include <cublas_v2.h> // if you need CUBLAS v2, include before magma.h
 #include <cuComplex.h>

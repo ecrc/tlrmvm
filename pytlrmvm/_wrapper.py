@@ -1,3 +1,6 @@
+#   @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                       All rights reserved.
+
 import TLRMVMpy as _cppimpl
 import numpy as _np
 from time import time as _time

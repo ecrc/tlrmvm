@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #include <hip/hip_runtime.h>
 #include <hip/hip_runtime_api.h>
 #include <hipblas.h>

@@ -1,3 +1,8 @@
+#
+#  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                      All rights reserved.
+#
+
 ./install/test/ex1basic_float --M=4802 --N=19078 \
 --errorthreshold=0.0001 --problemname=mavis_000_R \
 --datafolder=$WORK_ROOT --nb=256 
