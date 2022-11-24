@@ -1,4 +1,7 @@
 
+// @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                     All rights reserved.
+
 #if defined(USE_OPENBLAS) || defined(USE_COMPILER_BLAS)
 #include "openblasinterface.h"
 

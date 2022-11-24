@@ -1,4 +1,7 @@
 
+// @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                     All rights reserved.
+
 #include <complex>
 #include <algorithm>
 #include <iostream>
