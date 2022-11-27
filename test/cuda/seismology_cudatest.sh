@@ -1,5 +1,10 @@
 #!/bin/bash
 
+#
+#  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                      All rights reserved.
+#
+
 # 1. Dense MVM Benchmark
 ./install/test/ex5dense 10000 10000 1000 complex
 #Results,DenseMVM,complex,V100,median time 1000.42 us,Bandwidth 799.827 GB/s

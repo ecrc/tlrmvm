@@ -1,11 +1,14 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #include <string>
 #include <vector>
 #include <chrono>
-
 #include <algorithm>
 #include <mpi.h>
 #include <common/Common.hpp>
 #include <tlrmvm/Tlrmvm.hpp>
+#define real float
 using namespace std;
 int main (int argc, char ** argv){
     int originM;
@@ -27,10 +30,10 @@ int main (int argc, char ** argv){
     originN = argparser.getint("N");
     nb = argparser.getint("nb");
     loopsize = argparser.getint("loopsize");
-    acc = argparser.getstring("errorthreshold");
-    problemname = argparser.getstring("problemname");
+    acc = argparser.getstring("threshold");
+    problemname = argparser.getstring("problem");
     datafolder = argparser.getstring("datafolder");
-    char rpath[100]; 
+    char rpath[300];
     sprintf(rpath, "%s/%s_Rmat_nb%d_acc%s.bin", datafolder.c_str(), problemname.c_str(), nb, acc.c_str());
     rankfile = string(rpath);
     TlrmvmConfig tlrmvmconfig(originM, originN, nb, datafolder, acc, problemname);
@@ -47,21 +50,22 @@ int main (int argc, char ** argv){
             maskmat.SetElem(i,j,1);
         }
     }
-    tlrmvmconfig.Maskmat = maskmat;
-    TlrmvmCPU<float> tlrmvmptr(tlrmvmconfig);
-    double bytes = TLRMVMBytesProcessed<float>(tlrmvmptr.config.granksum,
-                                               tlrmvmptr.config.nb, tlrmvmptr.config.paddingM,
-                                               tlrmvmptr.config.paddingN);
+    tlrmvmconfig.UpdateMaskmat(maskmat);
+    TlrmvmCPU<real> tlrmvmptr(tlrmvmconfig);
+    auto finalbuffer = new real[tlrmvmptr.config.paddingM];
+    memset(finalbuffer, 0, sizeof(real) * tlrmvmptr.config.paddingM);
     tlrmvmptr.MemoryInit();
-    auto finalbuffer = new float[tlrmvmptr.config.originM];
-    for(int i=0; i<tlrmvmptr.config.originM; i++) finalbuffer[i] = 0.0;
+    auto curx = Matrix<real>(tlrmvmptr.config.originN, 1);
+    curx.Fill(0.1);
+    tlrmvmptr.setX(curx.RawPtr(), curx.Shape()[0]);
     for(int i=0; i<loopsize; i++){
         MPI_Barrier(MPI_COMM_WORLD);
         auto start = std::chrono::steady_clock::now();
         tlrmvmptr.MVM();
+        tlrmvmptr.CopyToFinalresults();
         MPI_Barrier(MPI_COMM_WORLD);
         MPI_Reduce(tlrmvmptr.finalresults,
-                   finalbuffer, tlrmvmptr.config.originM,
+                   finalbuffer, tlrmvmptr.config.paddingM,
                    MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
         auto end = std::chrono::steady_clock::now();
         auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
@@ -71,22 +75,25 @@ int main (int argc, char ** argv){
     MPI_Allreduce(timestat.data(), mergetime.data(),
                   timestat.size(), MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
     if(rank == 0){
-        FPPCMatrix seismicpcmat(datafolder, acc, nb, problemname, originM, originN);
-        seismicpcmat.setX(tlrmvmptr.xmat);
-        seismicpcmat.GetDense();
-        Matrix<float> yv_pc = seismicpcmat.Phase1();
-        auto hyv = Matrix<float>(tlrmvmptr.p1ptrs.y, tlrmvmptr.config.workmatgranksum, 1);
-        // cout << " Phase 1 Correctness : " << hyv.allclose(yv_pc) << endl;
-        Matrix<float> yu_pc = seismicpcmat.Phase2();
-        auto hyu = Matrix<float>(tlrmvmptr.p3ptrs.x, tlrmvmptr.config.workmatgranksum, 1);
-        // cout << " Phase 2 Correctness : " << hyu.allclose(yu_pc) << endl;
-        Matrix<float> y_pc = seismicpcmat.Phase3();
-        auto hy = Matrix<float>(tlrmvmptr.p3ptrs.y, tlrmvmptr.config.originM, 1);
-        cout << " Check MPI Phase 3 Correctness : "<< hy.allclose(y_pc) << endl;
+#ifndef USE_NEC
+        FPPCMatrix pcmat(datafolder, acc, nb, problemname, originM, originN);
+        pcmat.setX(tlrmvmptr.xmat);
+        pcmat.GetDense();
+        Matrix<real> yv_pc = pcmat.Phase1();
+        auto hyv = Matrix<real>(tlrmvmptr.p1ptrs.y, tlrmvmptr.config.workmatgranksum, 1);
+//        cout << " Phase 1 Correctness : " << hyv.allclose(yv_pc) << endl;
+        Matrix<real> yu_pc = pcmat.Phase2();
+        auto hyu = Matrix<real>(tlrmvmptr.p3ptrs.x, tlrmvmptr.config.workmatgranksum, 1);
+//        cout << " Phase 2 Correctness : " << hyu.allclose(yu_pc) << endl;
+        Matrix<real> y_pc = pcmat.Phase3();
+        auto hy = Matrix<real>(finalbuffer, tlrmvmptr.config.originM, 1);
+        auto denseout = pcmat.GetDense() * tlrmvmptr.xmat;
+        cout << " Check MPI Phase 3 Correctness : "<< hy.allclose(denseout) << endl;
+#endif
         std::sort(mergetime.begin(), mergetime.end());
         int N = mergetime.size();
         cout << "median " << mergetime[N / 2] * 1e6 << " us."<< endl;
-        double bytes = TLRMVMBytesProcessed<float>(tlrmvmptr.config.granksum,
+        double bytes = TLRMVMBytesProcessed<real>(tlrmvmptr.config.granksum,
                                                    tlrmvmptr.config.nb, originM, originN);
         cout << "U and V bases size: " << bytes * 1e-6 << " MB." << endl;
         cout << "Bandwidth " << bytes / mergetime[N/2] * 1e-9 << " GB/s" << endl;
@@ -96,5 +103,3 @@ int main (int argc, char ** argv){
     MPI_Finalize();
     return 0;
 }
-
-

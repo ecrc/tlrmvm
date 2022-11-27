@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #include "Tlrmvmcuda.hpp"
 #include "TlrmvmMPfp16.hpp"
 #include "cudakernel.cuh"

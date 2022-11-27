@@ -105,7 +105,10 @@ Compile and install
 ## 4. Test
 You also need to download the dataset to run the experiments.
 dataset download url:
-https://drive.google.com/drive/folders/1_DSyloFjlScXGTlA1_ybJnTne59tUpgR?usp=sharing
+1. seismic redatuming dataset
+https://zenodo.org/record/6582600
+2. MAVIS AO system matrcies dataset
+https://zenodo.org/record/7305622
 
 after download, put it in a seperate folder and set `WORK_ROOT` to that folder.
 

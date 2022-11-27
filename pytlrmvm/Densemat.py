@@ -1,3 +1,6 @@
+#   @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                       All rights reserved.
+
 from os.path import join
 from scipy.io import loadmat
 import numpy as np

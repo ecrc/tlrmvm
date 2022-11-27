@@ -1,3 +1,6 @@
+//  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+//                      All rights reserved.
+
 #include "BlasInterface.hpp"
 
 void gemm(const int *A, const int *B, int *C, int m, int n, int k){

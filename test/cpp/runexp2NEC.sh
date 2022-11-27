@@ -1,3 +1,8 @@
+#
+#  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                      All rights reserved.
+#
+
 # for NEC, for some reason the proof of concept matrix is running very slow,
 # one can try to by pass the logic so that you can get speed up.
 

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.19)
+cmake_minimum_required(VERSION 3.20)
 
 set(PROJECT_NAME TLRMVM)
 
@@ -35,7 +35,7 @@ set(CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/lib)
 option(BUILD_CPU "Build TLR-MVM using cpp" ON)
 option(BUILD_DPCPP "Build TLR-MVM on intel archs and use intel dpc++." OFF)
 option(BUILD_CUDA "Build TLR-MVM on NVIDIA gpu and cuda." OFF) # using NVIDIA GPU
-# option(BUILD_HIP "Build TLR-MVM on amd gpu and use hip." OFF) # using AMD GPU (AMD is under dev)
+ option(BUILD_HIP "Build TLR-MVM on amd gpu and use hip." OFF) # using AMD GPU (AMD is under dev)
 
 #########################
 # BLAS backend selection
@@ -190,18 +190,16 @@ endif() # BUILD_CUDA
 # HIP library
 #######################
 if(BUILD_HIP)
-    list(APPEND CMAKE_PREFIX_PATH $ENV{HIP_PATH} $ENV{ROCM_PATH}
-            $ENV{HIP_PATH}/hip $ENV{HIP_PATH}/llvm/lib/clang/14.0.0/lib/linux)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result ")
+    enable_language(HIP)
+    find_package(HIP REQUIRED)
     include(cmake/hiptlrmvm.cmake)
     add_library(tlrmvmhiplib SHARED ${CPU_HEADERS} ${CPU_SRCS} ${HIP_HEADERS} ${HIP_SRCS})
-    find_package(hip REQUIRED)
-    find_package(hipblas REQUIRED)
-    set(TLRMVM_LIBS ${TLRMVM_LIBS} hip::device roc::hipblas)
+#    find_package(hipblas REQUIRED)
+    set(TLRMVM_LIBS ${TLRMVM_LIBS} hip::device hip::host hipblas)
     target_include_directories(tlrmvmhiplib PUBLIC ${TLRMVM_INCS})
     target_link_libraries(tlrmvmhiplib PUBLIC ${TLRMVM_LIBS})
     AddCompileDefinitions(tlrmvmhiplib)
-    target_compile_definitions(tlrmvmhiplib PUBLIC -D__HIP_PLATFORM_HCC__=1) # for clion search ...
+#    target_compile_definitions(tlrmvmhiplib PUBLIC -D__HIP_PLATFORM_HCC__=1) # for clion search ...
     target_compile_definitions(tlrmvmhiplib PUBLIC USE_HIP)
     install(TARGETS tlrmvmhiplib DESTINATION lib)
 endif() # BUILD_HIP
@@ -212,7 +210,7 @@ endif() # BUILD_HIP
 #################
 if(BUILD_PYTHON AND (BUILD_CUDA OR BUILD_HIP))
     # now python is only available for CUDA and HIP build.
-    add_subdirectory(thirdparty/pybind11)
+    find_package(pybind11 REQUIRED)
     add_subdirectory(pytlrmvm)
 endif()
 

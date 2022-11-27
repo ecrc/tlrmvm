@@ -1,4 +1,9 @@
 #!/usr/bin/bash
+#
+#  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                      All rights reserved.
+#
+
 git clone -c feature.manyFiles=true https://github.com/spack/spack.git
 . $HOME/spack/share/spack/setup-env.sh
 spack compiler find

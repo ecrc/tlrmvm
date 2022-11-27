@@ -44,3 +44,20 @@ if(BUILD_CUDA)
         install(TARGETS ${cbins} DESTINATION test)
     endforeach()
 endif()
+
+if(BUILD_HIP)
+
+    set(BINS
+            Test_hip_hipblas
+            Test_hip_tlrmvm
+            Test_hip_constrank
+#            Test_hip_tlrmvmgraph
+            )
+    foreach(cbins ${BINS})
+        WrapHIPBinary(${cbins} hip)
+        install(TARGETS ${cbins} DESTINATION test)
+    endforeach()
+#    install(FILES
+#            ${CMAKE_CURRENT_LIST_DIR}/hip/Test_hip_tlrmvm_correctness.sh
+#            DESTINATION test PERMISSIONS OWNER_READ OWNER_EXECUTE GROUP_READ GROUP_EXECUTE)
+endif()

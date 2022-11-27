@@ -1,5 +1,10 @@
 #!/bin/bash
 
+#
+#  @Copyright (c) 2022 King Abdullah University of Science and Technology (KAUST).
+#                      All rights reserved.
+#
+
 # 2. TLR-MVM Benchmark [ ordering type : No ordering, NVIDIA]
 ./install/test/ex4cudagraph_csingle_mp --M=9801 --N=9801 \
 --errorthreshold=0.001 --problemname=Mode4_Mck_freqslice_100 \
