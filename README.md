@@ -133,7 +133,26 @@ To install it,
 This will create a build directory and build library inside it.
 After installation, add the library path (build/libxxx) to your 
 
-## 7 Handout
+## 7 References 
+Y. Hong, M. Ravasi, H. Ltaief, D. Keyes, Can tile low-rank compression live up to expectation? An application to 3D multi-dimensional deconvolution, 2023, SEG IMAGE 2023 International Meeting for Applied Geoscience & Energy (extended abstract).
+
+Y. Hong, H. Ltaief, M. Ravasi,  D. Keyes, HPC Seismic Redatuming by Inversion with Algebraic Compression and Multiple Precisions, 2023, KAUST Repo Preprint. 
+
+H. Ltaief, Y. Hong, L. Wilson, M. Jacquelin, M. Ravasi and D. Keyes, Scaling the “Memory Wall” for Multi-Dimensional Seismic Processing with Algebraic Compression on Cerebras CS-2 Systems, 2023, Proceedings of the International Conference for High Performance Computing, Networking, Storage, and Analysis (SC’23), IEEE Computer Society (ACM Gordon Bell Finalist).
+
+H. Ltaief, Y. Hong, A. Dabah, R. Alomairy, S. Abdulah, C. Goreczny, P. Gepner, M. Ravasi, D. Gratadour and D. Keyes, Steering Customized AI Architectures for HPC Scientific Applications, 2023, Springer International Supercomputing Conference (ISC’23) (A. Bhatele et al., eds.), Lecture Notes in Computer Science, Vol. 13948, pp. 125–143, doi 10.1007/978-3-031-32041-5 7.
+
+M. Ravasi, Y. Hong, H. Ltaief and D. Keyes, Tile-Low Rank Compressed Multi-Dimensional Convolution and Its Application to Seismic Redatuming Problems, 2022, 83rd EAGE Annual Conference, doi 10.3997/2214-4609.202210253 (extended abstract).
+
+M. Ravasi, Y. Hong, H. Ltaief, D. Keyes and D. Vargas, Large-Scale Marchenko Imaging with Distance-Aware Matrix Reordering, Tile Low-Rank Compression, and Mixed-Precision Computations, 2022, SEG IMAGE 2022 International Meeting for Applied Geoscience & Energy (extended abstract).
+
+H. Ltaief, J. Cranney, D. Gratadour, Y. Hong, L. Gatineau, and D. Keyes, Meeting the Real-Time Challenges of Ground-Based Telescopes Using Low-Rank Matrix Computations, 2021, ACM/IEEE International Conference for High Performance Computing, Networking, Storage, and Analysis (SC’21), doi 10.1145/3458817.3476225.
+
+Y. Hong, H. Ltaief, M. Ravasi, L. Gatineau and D. E. Keyes, Accelerating Seismic Redatuming Using Tile Low-Rank Approximations on NEC SX-Aurora TSUBASA, 2021, Supercomputing Frontiers and Innovations 8:6–26, doi 0.14529/jsfi210201.
+
+H. Zhang, J. Cranney, N. Doucet, Y. Hong, D. Gratadour, H. Ltaief, D. Keyes and F. Rigaut, Predictive Learn and Apply: MAVIS application – Learn, 2020, in Proceedings of SPIE 11448, Adaptive Optics Systems VII, 114482L (extended abstract).
+
+## 8 Handout
 
 ![alt text](https://github.com/ecrc/tlrmvm/blob/master/doxygen/handsout.png)
 
