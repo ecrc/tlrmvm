@@ -150,7 +150,11 @@ string ArgsParser::getstring(string key){
     return argmap[key];
 }
 
-
+bool ArgsParser::getbool(string key){
+    if(argmap.find(key) == argmap.end())
+    {cout << "key error in getbool: "<< key << endl; exit(0);}
+    return atoi(argmap[key].c_str());
+}
 
 template<typename T>
 void LoadBinary(char *filename, T **databuffer, unsigned long elems)

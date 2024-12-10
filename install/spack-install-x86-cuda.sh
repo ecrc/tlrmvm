@@ -18,10 +18,11 @@ spack:
   packages:
     all:
       target: [x86_64]
+      compiler: [gcc@11.4.0]
     cmake:
-      version: [3.21.0]
+      version: [3.21.7]
   specs:
-  - cmake@3.21.0
+  - cmake@3.21.7
   - intel-oneapi-mkl
   - intel-oneapi-compilers
   - openmpi
